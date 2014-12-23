@@ -11,10 +11,6 @@ import (
 	"time"
 )
 
-var (
-	errNon200 = errors.New("non 200 status code")
-)
-
 type bubbles struct {
 	q      chan *Action
 	retryQ chan *Action
@@ -70,8 +66,7 @@ func (a *Action) Buf() []byte {
 		if err != nil {
 			panic(err.Error())
 		}
-		fmt.Printf("buffer index: %s\n", md)
-		return []byte(fmt.Sprintf("{\"index\": %s}\n%s\n", md, a.Document))
+		return []byte(fmt.Sprintf("{\"%s\": %s}\n%s\n", a.Type.String(), md, a.Document))
 	}
 }
 
@@ -119,11 +114,11 @@ func (b bubbles) Enqueue(a *Action) {
 // retry is called by client() if an action didn't arrive at the server.
 func (b *bubbles) retry(a *Action) {
 	if a.Retry < 0 {
-		fmt.Printf("erroring an action\n")
+		// fmt.Printf("erroring an action\n")
 		b.error <- a
 		return
 	}
-	fmt.Printf("requeueing an action\n")
+	// fmt.Printf("requeueing an action\n")
 	b.retryQ <- a // never blocks.
 }
 
@@ -148,8 +143,8 @@ func (b *bubbles) Stop() []*Action {
 // address.
 func client(b *bubbles, addr string) {
 	url := fmt.Sprintf("http://%s/_bulk", addr) // TODO: https?
-	fmt.Printf("starting client to %s\n", addr)
-	defer fmt.Printf("stopping client to %s\n", addr)
+	// fmt.Printf("starting client to %s\n", addr)
+	// defer fmt.Printf("stopping client to %s\n", addr)
 
 	cl := http.Client{
 		Transport: &http.Transport{
@@ -166,7 +161,7 @@ func client(b *bubbles, addr string) {
 		}
 		toRetry := runBatch(b, cl, url)
 		for _, a := range toRetry {
-			fmt.Printf("do retry: %v\n", a)
+			// fmt.Printf("do retry: %v\n", a)
 			b.retry(a)
 		}
 	}
@@ -174,7 +169,6 @@ func client(b *bubbles, addr string) {
 }
 
 func runBatch(b *bubbles, cl http.Client, url string) []*Action {
-	fmt.Printf("runBatch\n")
 	maxDocumentCount := 10
 	actions := make([]*Action, 0, maxDocumentCount)
 	var t <-chan time.Time
@@ -200,16 +194,13 @@ gather:
 			return actions
 		case <-t:
 			// case not enabled until we've read an action.
-			fmt.Printf("timeout!\n")
 			break gather
 		case a := <-b.retryQ:
-			fmt.Printf("got a retry action: %v\n", a)
 			actions = append(actions, a)
 			if t == nil {
 				t = time.After(10 * time.Millisecond)
 			}
 		case a := <-b.q:
-			fmt.Printf("got an action: %v\n", a)
 			actions = append(actions, a)
 			// Set timeout on the first element we read
 			if t == nil {
@@ -218,25 +209,26 @@ gather:
 		}
 	}
 	if len(actions) == 0 {
-		fmt.Printf("no actions. Weird.\n")
+		// fmt.Printf("no actions. Weird.\n")
 		return nil
 	}
 
 	for retry := 3; retry > 0; retry-- {
 		res, err := postActions(cl, url, actions)
 		if err != nil {
+			// TODO: on a global 400 decr retry counts for all actions.
 			select {
 			case <-b.quit:
-				fmt.Printf("quit post\n")
+				// fmt.Printf("quit post\n")
 				return actions
 			default:
 			}
 			// Go again
-			fmt.Printf("major error: %v\n", err)
+			// fmt.Printf("major error: %v\n", err)
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		fmt.Printf("ES res: %v\n", res)
+		// fmt.Printf("ES res: %v\n", res)
 		// Server accepted this.
 		if !res.Errors {
 			// Simple case, no errors.
@@ -255,7 +247,7 @@ gather:
 			if el.Status == 200 {
 				continue
 			}
-			fmt.Printf("action error: %v\n", a)
+			// fmt.Printf("action error: %v\n", el.Error)
 			// TODO: do something with el.Error
 			a.Retry--
 			goAgain = append(goAgain, a)
@@ -268,6 +260,7 @@ gather:
 }
 
 func postActions(cl http.Client, url string, actions []*Action) (*BulkRes, error) {
+	// TODO: bytestring as argument
 	// TODO: don't chunk.
 	// TODO: timeout
 	buf := bytes.Buffer{}
@@ -281,18 +274,17 @@ func postActions(cl http.Client, url string, actions []*Action) (*BulkRes, error
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("all accepted by ES\n")
+	// fmt.Printf("all accepted by ES\n")
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
 	if resp.StatusCode != 200 {
-		fmt.Printf("statuscode: %d (%s)\n", resp.StatusCode, string(body))
-		return nil, errNon200
+		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
 	}
 
-	fmt.Printf("res body: %s\n", string(body))
+	// fmt.Printf("res body: %s\n", string(body))
 	var bulk BulkRes
 	if err := json.Unmarshal(body, &bulk); err != nil {
 		return nil, err
