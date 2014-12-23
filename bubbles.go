@@ -19,22 +19,6 @@ type bubbles struct {
 	wg     sync.WaitGroup
 }
 
-type ActionType int
-
-const (
-	Index ActionType = iota
-	Create
-	Delete
-	Update
-)
-
-type Action struct {
-	Type     ActionType
-	Retry    int
-	MetaData MetaData
-	Document string // without any \n! // TODO: []byte ?
-}
-
 type MetaData struct {
 	Index string `json:"_index"`
 	Type  string `json:"_type"`
@@ -56,30 +40,6 @@ type BulkResStatus struct {
 	Error   string `json:"error"`
 }
 
-// Buf returns the command as ES buffer
-func (a *Action) Buf() []byte {
-	switch a.Type {
-	default:
-		panic("what's this?")
-	case Index:
-		md, err := json.Marshal(a.MetaData)
-		if err != nil {
-			panic(err.Error())
-		}
-		return []byte(fmt.Sprintf("{\"%s\": %s}\n%s\n", a.Type.String(), md, a.Document))
-	}
-}
-
-// String returns the ES version of the action.
-func (a ActionType) String() string {
-	switch a {
-	default:
-		panic("what's this?")
-	case Index:
-		return "index"
-	}
-}
-
 func New(addrs []string, cpc int, flushTimeout time.Duration) (*bubbles, error) {
 	b := bubbles{
 		q:      make(chan *Action),
@@ -99,8 +59,7 @@ func New(addrs []string, cpc int, flushTimeout time.Duration) (*bubbles, error) 
 	return &b, nil
 }
 
-// Errors returns the channel for actions which errored, but have no retries
-// left.
+// Errors returns the channel for actions which errored.
 func (b *bubbles) Errors() <-chan *Action {
 	return b.error
 }
@@ -111,17 +70,8 @@ func (b bubbles) Enqueue(a *Action) {
 	b.q <- a
 }
 
-// retry is called by client() if an action didn't arrive at the server.
-func (b *bubbles) retry(a *Action) {
-	if a.Retry < 0 {
-		// fmt.Printf("erroring an action\n")
-		b.error <- a
-		return
-	}
-	// fmt.Printf("requeueing an action\n")
-	b.retryQ <- a // never blocks.
-}
-
+// Stop shuts down all ES clients. It'll return all Action entries which were
+// not yet processed.
 func (b *bubbles) Stop() []*Action {
 	close(b.quit)
 	// TODO: timeout
@@ -139,8 +89,8 @@ func (b *bubbles) Stop() []*Action {
 	return pending
 }
 
-// client talks to ES. This runs in a go routine and deals with a single ES
-// address.
+// client talks to ES. This runs in a go routine in a loop and deals with a
+// single ES address.
 func client(b *bubbles, addr string) {
 	url := fmt.Sprintf("http://%s/_bulk", addr) // TODO: https?
 	// fmt.Printf("starting client to %s\n", addr)
@@ -159,21 +109,17 @@ func client(b *bubbles, addr string) {
 			return
 		default:
 		}
-		toRetry := runBatch(b, cl, url)
-		for _, a := range toRetry {
-			// fmt.Printf("do retry: %v\n", a)
-			b.retry(a)
-		}
+		runBatch(b, cl, url)
 	}
 
 }
 
-func runBatch(b *bubbles, cl http.Client, url string) []*Action {
+func runBatch(b *bubbles, cl http.Client, url string) {
 	maxDocumentCount := 10
 	actions := make([]*Action, 0, maxDocumentCount)
 	var t <-chan time.Time
 	// First try the ones to retry.
-prio:
+retry:
 	for len(actions) < maxDocumentCount {
 		select {
 		case a := <-b.retryQ:
@@ -182,8 +128,8 @@ prio:
 				t = time.After(10 * time.Millisecond)
 			}
 		default:
-			// no more prio ones
-			break prio
+			// no more retry ones
+			break retry
 		}
 	}
 
@@ -191,7 +137,10 @@ gather:
 	for len(actions) < maxDocumentCount {
 		select {
 		case <-b.quit:
-			return actions
+			for _, a := range actions {
+				b.retryQ <- a
+			}
+			return
 		case <-t:
 			// case not enabled until we've read an action.
 			break gather
@@ -209,18 +158,19 @@ gather:
 		}
 	}
 	if len(actions) == 0 {
-		// fmt.Printf("no actions. Weird.\n")
-		return nil
+		// no actions. Weird.
+		return
 	}
 
 	for retry := 3; retry > 0; retry-- {
 		res, err := postActions(cl, url, actions)
 		if err != nil {
-			// TODO: on a global 400 decr retry counts for all actions.
 			select {
 			case <-b.quit:
-				// fmt.Printf("quit post\n")
-				return actions
+				for _, a := range actions {
+					b.retryQ <- a
+				}
+				return
 			default:
 			}
 			// Go again
@@ -232,31 +182,39 @@ gather:
 		// Server accepted this.
 		if !res.Errors {
 			// Simple case, no errors.
-			return nil
+			return
 		}
 		// Figure out which ones have errors.
-		goAgain := []*Action{}
 		for i, e := range res.Items {
 			a := actions[i] // TODO: sanity check
-			el, ok := e[a.Type.String()]
+			el, ok := e[string(a.Type)]
 			if !ok {
 				// TODO: this
 				fmt.Printf("Non matching action!\n")
 				continue
 			}
-			if el.Status == 200 {
-				continue
+
+			c := el.Status
+			switch {
+			case c >= 200 && c < 300:
+				// Document accepted by ES.
+			case c >= 400 && c < 500:
+				// Some error. Nothing we can do with it.
+				b.error <- a
+			case c >= 500 && c < 600:
+				// Server error. Retry it.
+				b.retryQ <- a
+			default:
+				// No idea.
+				fmt.Printf("unexpected status: %d. Ignoring document.\n", c)
 			}
-			// fmt.Printf("action error: %v\n", el.Error)
-			// TODO: do something with el.Error
-			a.Retry--
-			goAgain = append(goAgain, a)
 		}
-		return goAgain
+		return
 	}
-	fmt.Printf("giving up on a batch\n")
-	// All actions should be tried.
-	return actions
+	// Giving up on the batch. All actions should be re-tried.
+	for _, a := range actions {
+		b.retryQ <- a
+	}
 }
 
 func postActions(cl http.Client, url string, actions []*Action) (*BulkRes, error) {
@@ -284,7 +242,6 @@ func postActions(cl http.Client, url string, actions []*Action) (*BulkRes, error
 		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// fmt.Printf("res body: %s\n", string(body))
 	var bulk BulkRes
 	if err := json.Unmarshal(body, &bulk); err != nil {
 		return nil, err

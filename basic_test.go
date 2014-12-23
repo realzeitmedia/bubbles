@@ -15,8 +15,7 @@ func TestIndex(t *testing.T) {
 	}
 
 	ins := Action{
-		Type:  Index,
-		Retry: 1,
+		Type: Index,
 		MetaData: MetaData{
 			Index: "test",
 			Type:  "type1",
@@ -41,8 +40,7 @@ func TestIndexNoES(t *testing.T) {
 	}
 
 	ins := Action{
-		Type:  Index,
-		Retry: 1,
+		Type: Index,
 		MetaData: MetaData{
 			Index: "test",
 			Type:  "type1",
@@ -73,8 +71,7 @@ func TestIndexErr(t *testing.T) {
 	}
 
 	ins1 := Action{
-		Type:  Index,
-		Retry: 0,
+		Type: Index,
 		MetaData: MetaData{
 			Index: "test",
 			Type:  "type1",
@@ -83,8 +80,7 @@ func TestIndexErr(t *testing.T) {
 		Document: `{"field1": "value1"}`,
 	}
 	ins2 := Action{
-		Type:  Index,
-		Retry: 0,
+		Type: Index,
 		MetaData: MetaData{
 			Index: "test",
 			Type:  "type1",
