@@ -9,7 +9,7 @@ func TestIndex(t *testing.T) {
 	es := newMockES(t, `{"took":7,"items":[{"create":{"_index":"test","_type":"type1","_id":"1","_version":1}}]}`)
 	defer es.Stop()
 
-	b, err := New([]string{es.Addr()}, 2, 10*time.Millisecond)
+	b, err := New([]string{es.Addr()}, OptConnCount(2), OptFlush(10*time.Millisecond))
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -34,7 +34,7 @@ func TestIndex(t *testing.T) {
 
 func TestIndexNoES(t *testing.T) {
 	// Index without an ES
-	b, err := New([]string{"localhost:4321"}, 2, 10*time.Millisecond)
+	b, err := New([]string{"localhost:4321"}, OptConnCount(2), OptFlush(10*time.Millisecond))
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -50,7 +50,7 @@ func TestIndexNoES(t *testing.T) {
 	}
 
 	b.Enqueue(&ins)
-	time.Sleep(15 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 	pending := b.Stop()
 	if have, want := len(pending), 1; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
@@ -65,7 +65,7 @@ func TestIndexErr(t *testing.T) {
 		`{"took":8,"errors":true,"items":[{"index":{"_index":"index","_type":"type1","_id":"1","_version":5,"status":200}},{"index":{"_index":"index","_type":"type1","_id":"2","status":400,"error":"MapperParsingException[failed to parse]; nested: JsonParseException[Unexpected end-of-input within/between OBJECT entries\n at [Source: [B@5f72a900; line: 1, column: 160]]; "}}]}`)
 	defer es.Stop()
 
-	b, err := New([]string{es.Addr()}, 2, 10*time.Millisecond)
+	b, err := New([]string{es.Addr()}, OptConnCount(2), OptFlush(10*time.Millisecond))
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -91,13 +91,13 @@ func TestIndexErr(t *testing.T) {
 
 	b.Enqueue(&ins1)
 	b.Enqueue(&ins2)
-	var action *Action
+	var aerr ActionError
 	select {
 	case <-time.After(1 * time.Second):
 		t.Fatalf("timeout")
-	case action = <-b.Errors():
+	case aerr = <-b.Errors():
 	}
-	if have, want := action, &ins2; have != want {
+	if have, want := aerr.Action, ins2; have != want {
 		t.Fatalf("wrong err. have %v, want %v", have, want)
 	}
 	pending := b.Stop()

@@ -11,27 +11,40 @@ import (
 	"time"
 )
 
+const (
+	// DefaultMaxDocumentsPerBatch is the number of documents a batch needs to
+	// have before it's send. This is per connection.
+	DefaultMaxDocumentsPerBatch = 10
+
+	// DefaultFlushTimeout is the maximum time we batch something before we try
+	// to send it to a server.
+	DefaultFlushTimeout = 10 * time.Second
+
+	// DefaultCPH is the number of connections per hosts.
+	DefaultCPH = 2
+
+	defaultServerErrorWait = 1 * time.Second
+)
+
 type bubbles struct {
-	q      chan *Action
-	retryQ chan *Action
-	error  chan *Action
-	quit   chan struct{}
-	wg     sync.WaitGroup
+	q                chan *Action
+	retryQ           chan *Action
+	error            chan ActionError
+	quit             chan struct{}
+	wg               sync.WaitGroup
+	maxDocumentCount int
+	serverErrorWait  time.Duration
+	flushTimeout     time.Duration
+	cph              int
 }
 
-type MetaData struct {
-	Index string `json:"_index"`
-	Type  string `json:"_type"`
-	ID    string `json:"_id"`
-	// TODO: the rest of 'm
+type bulkRes struct {
+	Took   int                        `json:"took"`
+	Items  []map[string]bulkResStatus `json:"items"`
+	Errors bool                       `json:"errors"`
 }
 
-type BulkRes struct {
-	Took   int `json:"took"`
-	Items  []map[string]BulkResStatus
-	Errors bool
-}
-type BulkResStatus struct {
+type bulkResStatus struct {
 	Index   string `json:"_index"`
 	Type    string `json:"_type"`
 	ID      string `json:"_id"`
@@ -40,15 +53,65 @@ type BulkResStatus struct {
 	Error   string `json:"error"`
 }
 
-func New(addrs []string, cpc int, flushTimeout time.Duration) (*bubbles, error) {
-	b := bubbles{
-		q:      make(chan *Action),
-		retryQ: make(chan *Action, len(addrs)*cpc),
-		error:  make(chan *Action, 1),
-		quit:   make(chan struct{}),
+// ActionError wraps an Action we won't retry. It implements the error interface.
+type ActionError struct {
+	Action Action
+	Msg    string
+	Server string
+}
+
+func (e ActionError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Server, e.Msg)
+}
+
+// opt is any option to New()
+type opt func(*bubbles)
+
+// OptConnCount is an option to New() to specify the number of connections per
+// host. The default is DefaultCPH.
+func OptConnCount(n int) opt {
+	return func(b *bubbles) {
+		b.cph = n
 	}
+}
+
+// OptFlush is an option to New() to specify the flush timeout of a batch. The
+// default is DefaultFlushTimeout.
+func OptFlush(d time.Duration) opt {
+	return func(b *bubbles) {
+		b.flushTimeout = d
+	}
+}
+
+// OptMaxDocs is an option to New() to specify maximum number of documents in a
+// single batch. The  default is DefaultMaxDocumentsPerBatch.
+func OptMaxDocs(n int) opt {
+	return func(b *bubbles) {
+		b.maxDocumentCount = n
+	}
+}
+
+// New makes a new ES bulk inserter. It needs a list with 'ip:port' addresses,
+// options are added via the Opt* functions. Be sure to read the Errors()
+// channel.
+func New(addrs []string, opts ...opt) (*bubbles, error) {
+	b := bubbles{
+		q:                make(chan *Action),
+		error:            make(chan ActionError, 1),
+		quit:             make(chan struct{}),
+		maxDocumentCount: DefaultMaxDocumentsPerBatch,
+		serverErrorWait:  defaultServerErrorWait,
+		flushTimeout:     DefaultFlushTimeout,
+		cph:              DefaultCPH,
+	}
+	for _, o := range opts {
+		o(&b)
+	}
+	b.retryQ = make(chan *Action, len(addrs)*b.cph)
+
+	// Start a go routine per connection per host
 	for _, a := range addrs {
-		for i := 0; i < cpc; i++ {
+		for i := 0; i < b.cph; i++ {
 			b.wg.Add(1)
 			go func(a string) {
 				client(&b, a)
@@ -59,8 +122,8 @@ func New(addrs []string, cpc int, flushTimeout time.Duration) (*bubbles, error) 
 	return &b, nil
 }
 
-// Errors returns the channel for actions which errored.
-func (b *bubbles) Errors() <-chan *Action {
+// Errors returns a channel with all actions we won't retry.
+func (b *bubbles) Errors() <-chan ActionError {
 	return b.error
 }
 
@@ -71,12 +134,13 @@ func (b bubbles) Enqueue(a *Action) {
 }
 
 // Stop shuts down all ES clients. It'll return all Action entries which were
-// not yet processed.
+// not yet processed, or were up for a retry.
 func (b *bubbles) Stop() []*Action {
 	close(b.quit)
 	// TODO: timeout
 	b.wg.Wait()
-	// Return elements which gave errors.
+
+	// Collect and return elements which are in flight.
 	close(b.retryQ) // after Wait()!
 	close(b.q)      // after Wait()!
 	pending := make([]*Action, 0, len(b.retryQ)+len(b.q))
@@ -115,26 +179,26 @@ func client(b *bubbles, addr string) {
 }
 
 func runBatch(b *bubbles, cl http.Client, url string) {
-	maxDocumentCount := 10
-	actions := make([]*Action, 0, maxDocumentCount)
+	actions := make([]*Action, 0, b.maxDocumentCount)
 	var t <-chan time.Time
-	// First try the ones to retry.
+	// First use all retry actions.
 retry:
-	for len(actions) < maxDocumentCount {
+	for len(actions) < b.maxDocumentCount {
 		select {
 		case a := <-b.retryQ:
 			actions = append(actions, a)
-			if t == nil {
-				t = time.After(10 * time.Millisecond)
-			}
 		default:
-			// no more retry ones
+			// no more retry actions queued
 			break retry
 		}
 	}
 
 gather:
-	for len(actions) < maxDocumentCount {
+	for len(actions) < b.maxDocumentCount {
+		if actions != nil && t == nil {
+			// Set timeout on the first element we read
+			t = time.After(b.flushTimeout)
+		}
 		select {
 		case <-b.quit:
 			for _, a := range actions {
@@ -142,19 +206,12 @@ gather:
 			}
 			return
 		case <-t:
-			// case not enabled until we've read an action.
+			// this case is not enabled until we've got an action
 			break gather
 		case a := <-b.retryQ:
 			actions = append(actions, a)
-			if t == nil {
-				t = time.After(10 * time.Millisecond)
-			}
 		case a := <-b.q:
 			actions = append(actions, a)
-			// Set timeout on the first element we read
-			if t == nil {
-				t = time.After(10 * time.Millisecond)
-			}
 		}
 	}
 	if len(actions) == 0 {
@@ -162,62 +219,57 @@ gather:
 		return
 	}
 
-	for retry := 3; retry > 0; retry-- {
-		res, err := postActions(cl, url, actions)
-		if err != nil {
-			select {
-			case <-b.quit:
-				for _, a := range actions {
-					b.retryQ <- a
-				}
-				return
-			default:
-			}
-			// Go again
-			// fmt.Printf("major error: %v\n", err)
-			time.Sleep(1 * time.Second)
-			continue
+	res, err := postActions(cl, url, actions)
+	if err != nil {
+		// A server error. Put all elements back in the queue and wait a bit.
+		for _, a := range actions {
+			b.retryQ <- a
 		}
-		// fmt.Printf("ES res: %v\n", res)
-		// Server accepted this.
-		if !res.Errors {
-			// Simple case, no errors.
-			return
-		}
-		// Figure out which ones have errors.
-		for i, e := range res.Items {
-			a := actions[i] // TODO: sanity check
-			el, ok := e[string(a.Type)]
-			if !ok {
-				// TODO: this
-				fmt.Printf("Non matching action!\n")
-				continue
-			}
 
-			c := el.Status
-			switch {
-			case c >= 200 && c < 300:
-				// Document accepted by ES.
-			case c >= 400 && c < 500:
-				// Some error. Nothing we can do with it.
-				b.error <- a
-			case c >= 500 && c < 600:
-				// Server error. Retry it.
-				b.retryQ <- a
-			default:
-				// No idea.
-				fmt.Printf("unexpected status: %d. Ignoring document.\n", c)
-			}
+		select {
+		case <-b.quit:
+		case <-time.After(b.serverErrorWait):
 		}
 		return
 	}
-	// Giving up on the batch. All actions should be re-tried.
-	for _, a := range actions {
-		b.retryQ <- a
+
+	// Server has accepted the request, but there can be individual errors.
+	if !res.Errors {
+		// Simple case, no errors.
+		return
+	}
+	// Figure out which actions have errors.
+	for i, e := range res.Items {
+		a := actions[i] // TODO: sanity check
+		el, ok := e[string(a.Type)]
+		if !ok {
+			// TODO: this
+			fmt.Printf("Non matching action!\n")
+			continue
+		}
+
+		c := el.Status
+		switch {
+		case c >= 200 && c < 300:
+			// Document accepted by ES.
+		case c >= 400 && c < 500:
+			// Some error. Nothing we can do with it.
+			b.error <- ActionError{
+				Action: *a,
+				Msg:    fmt.Sprintf("error %d: %s", c, el.Error),
+				Server: url,
+			}
+		case c >= 500 && c < 600:
+			// Server error. Retry it.
+			b.retryQ <- a
+		default:
+			// No idea.
+			fmt.Printf("unexpected status: %d. Ignoring document.\n", c)
+		}
 	}
 }
 
-func postActions(cl http.Client, url string, actions []*Action) (*BulkRes, error) {
+func postActions(cl http.Client, url string, actions []*Action) (*bulkRes, error) {
 	// TODO: bytestring as argument
 	// TODO: don't chunk.
 	// TODO: timeout
@@ -225,14 +277,13 @@ func postActions(cl http.Client, url string, actions []*Action) (*BulkRes, error
 	for _, a := range actions {
 		buf.Write(a.Buf())
 	}
-	// fmt.Printf("buffer to post to %s:\n<<<\n%s\n<<<\n", url, buf.String())
+
 	resp, err := cl.Post(url, "application/x-www-form-urlencoded", &buf)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	// fmt.Printf("all accepted by ES\n")
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
@@ -242,7 +293,7 @@ func postActions(cl http.Client, url string, actions []*Action) (*BulkRes, error
 		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var bulk BulkRes
+	var bulk bulkRes
 	if err := json.Unmarshal(body, &bulk); err != nil {
 		return nil, err
 	}
