@@ -16,7 +16,7 @@ const (
 )
 
 func TestLiveIndex(t *testing.T) {
-	b, err := New([]string{addr}, 2, 10*time.Millisecond)
+	b, err := New([]string{addr}, OptFlush(10*time.Millisecond))
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -42,7 +42,7 @@ func TestLiveIndex(t *testing.T) {
 func TestLiveIndexError(t *testing.T) {
 	// Index with errors.
 
-	b, err := New([]string{addr}, 2, 10*time.Millisecond)
+	b, err := New([]string{addr}, OptFlush(10*time.Millisecond))
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -76,7 +76,7 @@ func TestLiveIndexError(t *testing.T) {
 }
 
 func TestLiveMany(t *testing.T) {
-	b, err := New([]string{addr}, 2, 10*time.Millisecond)
+	b, err := New([]string{addr}, OptFlush(10*time.Millisecond))
 	if err != nil {
 		t.Fatal(err.Error())
 	}
