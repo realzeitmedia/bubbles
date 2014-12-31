@@ -23,7 +23,7 @@ const (
 	// DefaultCPH is the number of connections per hosts.
 	DefaultCPH = 2
 
-	defaultServerErrorWait = 1 * time.Second
+	serverErrorWait = 1 * time.Second
 )
 
 type bubbles struct {
@@ -33,7 +33,6 @@ type bubbles struct {
 	quit             chan struct{}
 	wg               sync.WaitGroup
 	maxDocumentCount int
-	serverErrorWait  time.Duration
 	flushTimeout     time.Duration
 	cph              int
 }
@@ -100,7 +99,6 @@ func New(addrs []string, opts ...opt) (*bubbles, error) {
 		error:            make(chan ActionError, 1),
 		quit:             make(chan struct{}),
 		maxDocumentCount: DefaultMaxDocumentsPerBatch,
-		serverErrorWait:  defaultServerErrorWait,
 		flushTimeout:     DefaultFlushTimeout,
 		cph:              DefaultCPH,
 	}
@@ -141,9 +139,9 @@ func (b *bubbles) Stop() []*Action {
 	b.wg.Wait()
 
 	// Collect and return elements which are in flight.
-	close(b.retryQ) // after Wait()!
-	close(b.q)      // after Wait()!
-	pending := make([]*Action, 0, len(b.retryQ)+len(b.q))
+	close(b.retryQ)
+	close(b.q)
+	pending := make([]*Action, 0, len(b.q)+len(b.retryQ))
 	for a := range b.q {
 		pending = append(pending, a)
 	}
@@ -173,12 +171,21 @@ func client(b *bubbles, addr string) {
 			return
 		default:
 		}
-		runBatch(b, cl, url)
+		if err := runBatch(b, cl, url); err != nil {
+			// runBatch only returns an error on server error.
+			select {
+			case <-b.quit:
+			case <-time.After(serverErrorWait):
+				// TODO: backoff period
+			}
+		}
 	}
 
 }
 
-func runBatch(b *bubbles, cl http.Client, url string) {
+// runBatch gathers and deals with a batch of actions. It'll return a non-nil
+// error if the whole server gave an error.
+func runBatch(b *bubbles, cl http.Client, url string) error {
 	actions := make([]*Action, 0, b.maxDocumentCount)
 	var t <-chan time.Time
 	// First use all retry actions.
@@ -195,7 +202,7 @@ retry:
 
 gather:
 	for len(actions) < b.maxDocumentCount {
-		if actions != nil && t == nil {
+		if t == nil && len(actions) > 0 {
 			// Set timeout on the first element we read
 			t = time.After(b.flushTimeout)
 		}
@@ -204,7 +211,7 @@ gather:
 			for _, a := range actions {
 				b.retryQ <- a
 			}
-			return
+			return nil
 		case <-t:
 			// this case is not enabled until we've got an action
 			break gather
@@ -216,27 +223,23 @@ gather:
 	}
 	if len(actions) == 0 {
 		// no actions. Weird.
-		return
+		return nil
 	}
 
 	res, err := postActions(cl, url, actions)
 	if err != nil {
-		// A server error. Put all elements back in the queue and wait a bit.
+		// A server error. Retry these actions later.
 		for _, a := range actions {
 			b.retryQ <- a
 		}
-
-		select {
-		case <-b.quit:
-		case <-time.After(b.serverErrorWait):
-		}
-		return
+		return err
 	}
 
-	// Server has accepted the request, but there can be individual errors.
+	// Server has accepted the request an sich, but there can be errors in the
+	// individual actions.
 	if !res.Errors {
-		// Simple case, no errors.
-		return
+		// Simple case, no errors present.
+		return nil
 	}
 	// Figure out which actions have errors.
 	for i, e := range res.Items {
@@ -267,6 +270,7 @@ gather:
 			fmt.Printf("unexpected status: %d. Ignoring document.\n", c)
 		}
 	}
+	return nil
 }
 
 func postActions(cl http.Client, url string, actions []*Action) (*bulkRes, error) {
