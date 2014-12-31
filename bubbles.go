@@ -13,12 +13,16 @@ import (
 
 const (
 	// DefaultMaxDocumentsPerBatch is the number of documents a batch needs to
-	// have before it's send. This is per connection.
+	// have before it is send. This is per connection.
 	DefaultMaxDocumentsPerBatch = 10
 
 	// DefaultFlushTimeout is the maximum time we batch something before we try
 	// to send it to a server.
 	DefaultFlushTimeout = 10 * time.Second
+
+	// DefaultServerTimeout is the time we give ES to respond. This is also the
+	// maximum time Stop() will take.
+	DefaultServerTimeout = 10 * time.Second
 
 	// DefaultCPH is the number of connections per hosts.
 	DefaultCPH = 2
@@ -33,8 +37,9 @@ type bubbles struct {
 	quit             chan struct{}
 	wg               sync.WaitGroup
 	maxDocumentCount int
-	flushTimeout     time.Duration
 	cph              int
+	flushTimeout     time.Duration
+	serverTimeout    time.Duration
 }
 
 type bulkRes struct {
@@ -82,6 +87,16 @@ func OptFlush(d time.Duration) opt {
 	}
 }
 
+// OptServerTimeout is an option to New() to specify the timeout of a single
+// batch POST to ES. This value is also the maximum time Stop() will take.  All
+// actions in a bulk which is timed out will be retried. The default is
+// DefaultServerTimeout.
+func OptServerTimeout(d time.Duration) opt {
+	return func(b *bubbles) {
+		b.serverTimeout = d
+	}
+}
+
 // OptMaxDocs is an option to New() to specify maximum number of documents in a
 // single batch. The  default is DefaultMaxDocumentsPerBatch.
 func OptMaxDocs(n int) opt {
@@ -99,8 +114,9 @@ func New(addrs []string, opts ...opt) (*bubbles, error) {
 		error:            make(chan ActionError, 1),
 		quit:             make(chan struct{}),
 		maxDocumentCount: DefaultMaxDocumentsPerBatch,
-		flushTimeout:     DefaultFlushTimeout,
 		cph:              DefaultCPH,
+		flushTimeout:     DefaultFlushTimeout,
+		serverTimeout:    DefaultServerTimeout,
 	}
 	for _, o := range opts {
 		o(&b)
@@ -132,10 +148,12 @@ func (b bubbles) Enqueue(a *Action) {
 }
 
 // Stop shuts down all ES clients. It'll return all Action entries which were
-// not yet processed, or were up for a retry.
+// not yet processed, or were up for a retry. It can take OptServerTimeout to
+// complete.
 func (b *bubbles) Stop() []*Action {
 	close(b.quit)
-	// TODO: timeout
+	// There is no explicit timeout, we rely on b.serverTimeout to shut down
+	// everything.
 	b.wg.Wait()
 
 	// Collect and return elements which are in flight.
@@ -159,9 +177,7 @@ func client(b *bubbles, addr string) {
 	// defer fmt.Printf("stopping client to %s\n", addr)
 
 	cl := http.Client{
-		Transport: &http.Transport{
-			DisableCompression: true, // TODO: sure?
-		},
+		Timeout:       b.serverTimeout,
 		CheckRedirect: noRedirect,
 	}
 
@@ -173,6 +189,7 @@ func client(b *bubbles, addr string) {
 		}
 		if err := runBatch(b, cl, url); err != nil {
 			// runBatch only returns an error on server error.
+			// TODO: some sort of logging
 			select {
 			case <-b.quit:
 			case <-time.After(serverErrorWait):
