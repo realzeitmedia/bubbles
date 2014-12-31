@@ -111,7 +111,7 @@ func OptMaxDocs(n int) opt {
 func New(addrs []string, opts ...opt) (*bubbles, error) {
 	b := bubbles{
 		q:                make(chan *Action),
-		error:            make(chan ActionError, 1),
+		error:            make(chan ActionError, 10),
 		quit:             make(chan struct{}),
 		maxDocumentCount: DefaultMaxDocumentsPerBatch,
 		cph:              DefaultCPH,
@@ -156,6 +156,8 @@ func (b *bubbles) Stop() []*Action {
 	// everything.
 	b.wg.Wait()
 
+	close(b.error)
+
 	// Collect and return elements which are in flight.
 	close(b.retryQ)
 	close(b.q)
@@ -190,6 +192,7 @@ func client(b *bubbles, addr string) {
 		if err := runBatch(b, cl, url); err != nil {
 			// runBatch only returns an error on server error.
 			// TODO: some sort of logging
+			// fmt.Printf("Server error: %s\n", err)
 			select {
 			case <-b.quit:
 			case <-time.After(serverErrorWait):
@@ -293,7 +296,6 @@ gather:
 func postActions(cl http.Client, url string, actions []*Action) (*bulkRes, error) {
 	// TODO: bytestring as argument
 	// TODO: don't chunk.
-	// TODO: timeout
 	buf := bytes.Buffer{}
 	for _, a := range actions {
 		buf.Write(a.Buf())
