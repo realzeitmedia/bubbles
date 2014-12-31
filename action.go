@@ -33,10 +33,11 @@ type MetaData struct {
 	Type  string `json:"_type"`
 	ID    string `json:"_id,omitempty"`
 	// TODO: Check all these
-	Refresh         bool `json:"refresh,omitempty"`
-	RetryOnConflict int  `json:"retry_on_conflict,omitempty"`
-	Timestamp       int  `json:"_timestamp,omitempty"`
-	TTL             int  `json:"ttl,omitempty"`
+	Refresh         bool   `json:"refresh,omitempty"`
+	RetryOnConflict int    `json:"retry_on_conflict,omitempty"`
+	Timestamp       int    `json:"_timestamp,omitempty"`
+	TTL             int    `json:"ttl,omitempty"`
+	Consistency     string `json:"consistency,omitempty"`
 }
 
 // Buf returns the command ready for the ES bulk buffer
