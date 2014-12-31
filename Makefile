@@ -6,8 +6,7 @@ test:
 	go test
 
 livetest:
-	#go test -tags live
-	go test -tags live -run TestLiveIndex
+	go test -tags live -v
 
 vet:
 	go vet
