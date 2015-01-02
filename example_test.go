@@ -8,10 +8,7 @@ import (
 )
 
 func Example() {
-	b, err := bubbles.New([]string{"127.0.0.1:9200"}, OptConnCount(2), OptFlush(1*time.second))
-	if err != nil {
-		panic(err.String())
-	}
+	b := bubbles.New([]string{"127.0.0.1:9200"}, bubbles.OptConnCount(2), bubbles.OptFlush(1*time.Second))
 	defer func() {
 		// Stop() returns all in-flight actions.
 		for _, a := range b.Stop() {
@@ -26,9 +23,9 @@ func Example() {
 		}
 	}()
 
-	b.Enqueue() <- Action{
+	b.Enqueue() <- bubbles.Action{
 		Type: bubbles.Index,
-		MetaData: MetaData{
+		MetaData: bubbles.MetaData{
 			Index: "test",
 			Type:  "type1",
 			ID:    "1",
