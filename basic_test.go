@@ -11,10 +11,7 @@ func TestIndex(t *testing.T) {
 	})
 	defer es.Stop()
 
-	b, err := New([]string{es.Addr()}, OptConnCount(2), OptFlush(10*time.Millisecond))
-	if err != nil {
-		t.Fatal(err.Error())
-	}
+	b := New([]string{es.Addr()}, OptConnCount(2), OptFlush(10*time.Millisecond))
 
 	ins := Action{
 		Type: Index,
@@ -26,7 +23,7 @@ func TestIndex(t *testing.T) {
 		Document: `{"field1": "value1"}`,
 	}
 
-	b.Enqueue(&ins)
+	b.Enqueue() <- ins
 	time.Sleep(15 * time.Millisecond)
 	pending := b.Stop()
 	if have, want := len(pending), 0; have != want {
@@ -36,10 +33,7 @@ func TestIndex(t *testing.T) {
 
 func TestIndexNoES(t *testing.T) {
 	// Index without an ES
-	b, err := New([]string{"localhost:4321"}, OptConnCount(2), OptFlush(10*time.Millisecond))
-	if err != nil {
-		t.Fatal(err.Error())
-	}
+	b := New([]string{"localhost:4321"}, OptConnCount(2), OptFlush(10*time.Millisecond))
 
 	ins := Action{
 		Type: Index,
@@ -51,13 +45,13 @@ func TestIndexNoES(t *testing.T) {
 		Document: `{"field1": "value1"}`,
 	}
 
-	b.Enqueue(&ins)
+	b.Enqueue() <- ins
 	time.Sleep(20 * time.Millisecond)
 	pending := b.Stop()
 	if have, want := len(pending), 1; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
 	}
-	if pending[0] != &ins {
+	if pending[0] != ins {
 		t.Errorf("Wrong pending object returned")
 	}
 }
@@ -71,10 +65,7 @@ func TestIndexErr(t *testing.T) {
 	)
 	defer es.Stop()
 
-	b, err := New([]string{es.Addr()}, OptConnCount(2), OptFlush(10*time.Millisecond))
-	if err != nil {
-		t.Fatal(err.Error())
-	}
+	b := New([]string{es.Addr()}, OptConnCount(2), OptFlush(10*time.Millisecond))
 
 	ins1 := Action{
 		Type: Index,
@@ -95,8 +86,8 @@ func TestIndexErr(t *testing.T) {
 		Document: `{"field1": `, // fake an error
 	}
 
-	b.Enqueue(&ins1)
-	b.Enqueue(&ins2)
+	b.Enqueue() <- ins1
+	b.Enqueue() <- ins2
 	var aerr ActionError
 	select {
 	case <-time.After(1 * time.Second):
@@ -119,14 +110,11 @@ func TestShutdownTimeout(t *testing.T) {
 	})
 	defer es.Stop()
 
-	b, err := New([]string{es.Addr()},
+	b := New([]string{es.Addr()},
 		OptConnCount(1),
 		OptFlush(10*time.Millisecond),
 		OptServerTimeout(100*time.Millisecond),
 	)
-	if err != nil {
-		t.Fatal(err.Error())
-	}
 
 	ins := Action{
 		Type: Index,
@@ -137,7 +125,7 @@ func TestShutdownTimeout(t *testing.T) {
 		},
 		Document: `{"field1": "value1"}`,
 	}
-	b.Enqueue(&ins)
+	b.Enqueue() <- ins
 
 	time.Sleep(20 * time.Millisecond)
 	now := time.Now()
@@ -148,7 +136,7 @@ func TestShutdownTimeout(t *testing.T) {
 	if have, want := len(pending), 1; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
 	}
-	if pending[0] != &ins {
+	if pending[0] != ins {
 		t.Errorf("Wrong pending object returned")
 	}
 }

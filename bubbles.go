@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -30,9 +31,11 @@ const (
 	serverErrorWait = 1 * time.Second
 )
 
-type bubbles struct {
-	q                chan *Action
-	retryQ           chan *Action
+// Bubbles is the main struct to control a queue of Actions going to the
+// ElasticSearch servers.
+type Bubbles struct {
+	q                chan Action
+	retryQ           chan Action
 	error            chan ActionError
 	quit             chan struct{}
 	wg               sync.WaitGroup
@@ -69,12 +72,12 @@ func (e ActionError) Error() string {
 }
 
 // opt is any option to New()
-type opt func(*bubbles)
+type opt func(*Bubbles)
 
 // OptConnCount is an option to New() to specify the number of connections per
 // host. The default is DefaultCPH.
 func OptConnCount(n int) opt {
-	return func(b *bubbles) {
+	return func(b *Bubbles) {
 		b.cph = n
 	}
 }
@@ -82,25 +85,25 @@ func OptConnCount(n int) opt {
 // OptFlush is an option to New() to specify the flush timeout of a batch. The
 // default is DefaultFlushTimeout.
 func OptFlush(d time.Duration) opt {
-	return func(b *bubbles) {
+	return func(b *Bubbles) {
 		b.flushTimeout = d
 	}
 }
 
 // OptServerTimeout is an option to New() to specify the timeout of a single
-// batch POST to ES. This value is also the maximum time Stop() will take.  All
+// batch POST to ES. This value is also the maximum time Stop() will take. All
 // actions in a bulk which is timed out will be retried. The default is
 // DefaultServerTimeout.
 func OptServerTimeout(d time.Duration) opt {
-	return func(b *bubbles) {
+	return func(b *Bubbles) {
 		b.serverTimeout = d
 	}
 }
 
 // OptMaxDocs is an option to New() to specify maximum number of documents in a
-// single batch. The  default is DefaultMaxDocumentsPerBatch.
+// single batch. The default is DefaultMaxDocumentsPerBatch.
 func OptMaxDocs(n int) opt {
-	return func(b *bubbles) {
+	return func(b *Bubbles) {
 		b.maxDocumentCount = n
 	}
 }
@@ -108,9 +111,9 @@ func OptMaxDocs(n int) opt {
 // New makes a new ES bulk inserter. It needs a list with 'ip:port' addresses,
 // options are added via the Opt* functions. Be sure to read the Errors()
 // channel.
-func New(addrs []string, opts ...opt) (*bubbles, error) {
-	b := bubbles{
-		q:                make(chan *Action),
+func New(addrs []string, opts ...opt) *Bubbles {
+	b := Bubbles{
+		q:                make(chan Action),
 		error:            make(chan ActionError, 10),
 		quit:             make(chan struct{}),
 		maxDocumentCount: DefaultMaxDocumentsPerBatch,
@@ -121,7 +124,7 @@ func New(addrs []string, opts ...opt) (*bubbles, error) {
 	for _, o := range opts {
 		o(&b)
 	}
-	b.retryQ = make(chan *Action, len(addrs)*b.cph)
+	b.retryQ = make(chan Action, len(addrs)*b.cph)
 
 	// Start a go routine per connection per host
 	for _, a := range addrs {
@@ -133,24 +136,24 @@ func New(addrs []string, opts ...opt) (*bubbles, error) {
 			}(a)
 		}
 	}
-	return &b, nil
+	return &b
 }
 
 // Errors returns a channel with all actions we won't retry.
-func (b *bubbles) Errors() <-chan ActionError {
+func (b *Bubbles) Errors() <-chan ActionError {
 	return b.error
 }
 
-// Enqueue queues a single action in a routine. It will block if all bulk
+// Enqueue returns the queue to add Actions in a routine. It will block if all bulk
 // processors are busy.
-func (b bubbles) Enqueue(a *Action) {
-	b.q <- a
+func (b *Bubbles) Enqueue() chan<- Action {
+	return b.q
 }
 
 // Stop shuts down all ES clients. It'll return all Action entries which were
 // not yet processed, or were up for a retry. It can take OptServerTimeout to
 // complete.
-func (b *bubbles) Stop() []*Action {
+func (b *Bubbles) Stop() []Action {
 	close(b.quit)
 	// There is no explicit timeout, we rely on b.serverTimeout to shut down
 	// everything.
@@ -161,7 +164,7 @@ func (b *bubbles) Stop() []*Action {
 	// Collect and return elements which are in flight.
 	close(b.retryQ)
 	close(b.q)
-	pending := make([]*Action, 0, len(b.q)+len(b.retryQ))
+	pending := make([]Action, 0, len(b.q)+len(b.retryQ))
 	for a := range b.q {
 		pending = append(pending, a)
 	}
@@ -173,10 +176,10 @@ func (b *bubbles) Stop() []*Action {
 
 // client talks to ES. This runs in a go routine in a loop and deals with a
 // single ES address.
-func client(b *bubbles, addr string) {
+func client(b *Bubbles, addr string) {
 	url := fmt.Sprintf("http://%s/_bulk", addr) // TODO: https?
-	// fmt.Printf("starting client to %s\n", addr)
-	// defer fmt.Printf("stopping client to %s\n", addr)
+	// log.Printf("starting client to %s\n", addr)
+	// defer log.Printf("stopping client to %s\n", addr)
 
 	cl := http.Client{
 		Timeout:       b.serverTimeout,
@@ -191,8 +194,7 @@ func client(b *bubbles, addr string) {
 		}
 		if err := runBatch(b, cl, url); err != nil {
 			// runBatch only returns an error on server error.
-			// TODO: some sort of logging
-			// fmt.Printf("Server error: %s\n", err)
+			log.Printf("server error: %s", err)
 			select {
 			case <-b.quit:
 			case <-time.After(serverErrorWait):
@@ -205,9 +207,8 @@ func client(b *bubbles, addr string) {
 
 // runBatch gathers and deals with a batch of actions. It'll return a non-nil
 // error if the whole server gave an error.
-func runBatch(b *bubbles, cl http.Client, url string) error {
-	actions := make([]*Action, 0, b.maxDocumentCount)
-	var t <-chan time.Time
+func runBatch(b *Bubbles, cl http.Client, url string) error {
+	actions := make([]Action, 0, b.maxDocumentCount)
 	// First use all retry actions.
 retry:
 	for len(actions) < b.maxDocumentCount {
@@ -220,6 +221,7 @@ retry:
 		}
 	}
 
+	var t <-chan time.Time
 gather:
 	for len(actions) < b.maxDocumentCount {
 		if t == nil && len(actions) > 0 {
@@ -278,7 +280,7 @@ gather:
 		case c >= 400 && c < 500:
 			// Some error. Nothing we can do with it.
 			b.error <- ActionError{
-				Action: *a,
+				Action: a,
 				Msg:    fmt.Sprintf("error %d: %s", c, el.Error),
 				Server: url,
 			}
@@ -293,7 +295,7 @@ gather:
 	return nil
 }
 
-func postActions(cl http.Client, url string, actions []*Action) (*bulkRes, error) {
+func postActions(cl http.Client, url string, actions []Action) (*bulkRes, error) {
 	// TODO: bytestring as argument
 	// TODO: don't chunk.
 	buf := bytes.Buffer{}

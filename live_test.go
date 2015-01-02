@@ -19,10 +19,7 @@ const (
 )
 
 func TestLiveIndex(t *testing.T) {
-	b, err := New([]string{addr}, OptFlush(10*time.Millisecond))
-	if err != nil {
-		t.Fatal(err.Error())
-	}
+	b := New([]string{addr}, OptFlush(10*time.Millisecond))
 
 	ins := Action{
 		Type: Index,
@@ -34,7 +31,7 @@ func TestLiveIndex(t *testing.T) {
 		Document: `{"field1": "value1"}`,
 	}
 
-	b.Enqueue(&ins)
+	b.Enqueue() <- ins
 	time.Sleep(100 * time.Millisecond)
 	pending := b.Stop()
 	if have, want := len(pending), 0; have != want {
@@ -45,10 +42,7 @@ func TestLiveIndex(t *testing.T) {
 func TestLiveIndexError(t *testing.T) {
 	// Index with errors.
 
-	b, err := New([]string{addr}, OptFlush(10*time.Millisecond))
-	if err != nil {
-		t.Fatal(err.Error())
-	}
+	b := New([]string{addr}, OptFlush(10*time.Millisecond))
 
 	ins1 := Action{
 		Type: Index,
@@ -69,8 +63,8 @@ func TestLiveIndexError(t *testing.T) {
 		Document: `{"field1": `, // <-- invalid!
 	}
 
-	b.Enqueue(&ins1)
-	b.Enqueue(&ins2)
+	b.Enqueue() <- ins1
+	b.Enqueue() <- ins2
 	time.Sleep(100 * time.Millisecond)
 	pending := b.Stop()
 	if have, want := len(pending), 0; have != want {
@@ -96,10 +90,7 @@ func TestLiveIndexError(t *testing.T) {
 }
 
 func TestLiveMany(t *testing.T) {
-	b, err := New([]string{addr}, OptFlush(10*time.Millisecond))
-	if err != nil {
-		t.Fatal(err.Error())
-	}
+	b := New([]string{addr}, OptFlush(10*time.Millisecond))
 	go func() {
 		for e := range b.Errors() {
 			fmt.Printf("error: %v\n", e)
@@ -128,14 +119,14 @@ func TestLiveMany(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			for j := 0; j < documents/clients; j++ {
-				b.Enqueue(&Action{
+				b.Enqueue() <- Action{
 					Type: Create,
 					MetaData: MetaData{
 						Index: index,
 						Type:  "type1",
 					},
 					Document: `{"field1": "value1"}`,
-				})
+				}
 			}
 			wg.Done()
 		}()
@@ -143,7 +134,7 @@ func TestLiveMany(t *testing.T) {
 	wg.Wait()
 
 	// One more to flush things.
-	b.Enqueue(&Action{
+	b.Enqueue() <- Action{
 		Type: Create,
 		MetaData: MetaData{
 			Index:   index,
@@ -151,7 +142,7 @@ func TestLiveMany(t *testing.T) {
 			Refresh: true, // <--
 		},
 		Document: `{"field1": "value1"}`,
-	})
+	}
 	time.Sleep(50 * time.Millisecond)
 
 	pending := b.Stop()
