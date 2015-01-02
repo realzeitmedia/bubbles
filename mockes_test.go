@@ -17,7 +17,7 @@ func newMockES(tb testing.TB, fixture func() string) mockES {
 	mux.HandleFunc("/_bulk", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, fixture())
 	})
-	l, err := net.Listen("tcp", "localhost:")
+	l, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		tb.Fatalf("listen error: %v", err)
 	}
