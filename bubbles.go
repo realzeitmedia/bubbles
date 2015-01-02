@@ -243,10 +243,6 @@ gather:
 			actions = append(actions, a)
 		}
 	}
-	if len(actions) == 0 {
-		// no actions. Weird.
-		return nil
-	}
 
 	res, err := postActions(cl, url, actions)
 	if err != nil {
