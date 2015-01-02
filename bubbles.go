@@ -71,12 +71,12 @@ func (e ActionError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Server, e.Msg)
 }
 
-// opt is any option to New()
-type opt func(*Bubbles)
+// Opt is any option to New()
+type Opt func(*Bubbles)
 
 // OptConnCount is an option to New() to specify the number of connections per
 // host. The default is DefaultConnCount.
-func OptConnCount(n int) opt {
+func OptConnCount(n int) Opt {
 	return func(b *Bubbles) {
 		b.connCount = n
 	}
@@ -84,7 +84,7 @@ func OptConnCount(n int) opt {
 
 // OptFlush is an option to New() to specify the flush timeout of a batch. The
 // default is DefaultFlushTimeout.
-func OptFlush(d time.Duration) opt {
+func OptFlush(d time.Duration) Opt {
 	return func(b *Bubbles) {
 		b.flushTimeout = d
 	}
@@ -94,7 +94,7 @@ func OptFlush(d time.Duration) opt {
 // batch POST to ES. This value is also the maximum time Stop() will take. All
 // actions in a bulk which is timed out will be retried. The default is
 // DefaultServerTimeout.
-func OptServerTimeout(d time.Duration) opt {
+func OptServerTimeout(d time.Duration) Opt {
 	return func(b *Bubbles) {
 		b.serverTimeout = d
 	}
@@ -102,7 +102,7 @@ func OptServerTimeout(d time.Duration) opt {
 
 // OptMaxDocs is an option to New() to specify maximum number of documents in a
 // single batch. The default is DefaultMaxDocumentsPerBatch.
-func OptMaxDocs(n int) opt {
+func OptMaxDocs(n int) Opt {
 	return func(b *Bubbles) {
 		b.maxDocumentCount = n
 	}
@@ -111,7 +111,7 @@ func OptMaxDocs(n int) opt {
 // New makes a new ES bulk inserter. It needs a list with 'ip:port' addresses,
 // options are added via the Opt* functions. Be sure to read the Errors()
 // channel.
-func New(addrs []string, opts ...opt) *Bubbles {
+func New(addrs []string, opts ...Opt) *Bubbles {
 	b := Bubbles{
 		q:                make(chan Action),
 		error:            make(chan ActionError, 10),
