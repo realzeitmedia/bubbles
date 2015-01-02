@@ -36,7 +36,7 @@ const (
 type Bubbles struct {
 	q                chan Action
 	retryQ           chan Action
-	error            chan ActionError
+	errorCb          func(ActionError)
 	quit             chan struct{}
 	wg               sync.WaitGroup
 	maxDocumentCount int
@@ -82,13 +82,20 @@ func OptMaxDocs(n int) Opt {
 	}
 }
 
+// OptError is an option to New() to specify a callback on error. The argument
+// will be an ActionError.  The default is no callback.
+func OptError(f func(ActionError)) Opt {
+	return func(b *Bubbles) {
+		b.errorCb = f
+	}
+}
+
 // New makes a new ES bulk inserter. It needs a list with 'ip:port' addresses,
 // options are added via the Opt* functions. Be sure to read the Errors()
 // channel.
 func New(addrs []string, opts ...Opt) *Bubbles {
 	b := Bubbles{
 		q:                make(chan Action),
-		error:            make(chan ActionError, 10),
 		quit:             make(chan struct{}),
 		maxDocumentCount: DefaultMaxDocumentsPerBatch,
 		connCount:        DefaultConnCount,
@@ -113,11 +120,6 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 	return &b
 }
 
-// Errors returns a channel with all actions we won't retry.
-func (b *Bubbles) Errors() <-chan ActionError {
-	return b.error
-}
-
 // Enqueue returns the queue to add Actions in a routine. It will block if all bulk
 // processors are busy.
 func (b *Bubbles) Enqueue() chan<- Action {
@@ -132,8 +134,6 @@ func (b *Bubbles) Stop() []Action {
 	// There is no explicit timeout, we rely on b.serverTimeout to shut down
 	// everything.
 	b.wg.Wait()
-
-	close(b.error)
 
 	// Collect and return elements which are in flight.
 	close(b.retryQ)
@@ -251,10 +251,12 @@ gather:
 			// Document accepted by ES.
 		case c >= 400 && c < 500:
 			// Some error. Nothing we can do with it.
-			b.error <- ActionError{
-				Action: a,
-				Msg:    fmt.Sprintf("error %d: %s", c, el.Error),
-				Server: url,
+			if b.errorCb != nil {
+				b.errorCb(ActionError{
+					Action: a,
+					Msg:    fmt.Sprintf("error %d: %s", c, el.Error),
+					Server: url,
+				})
 			}
 		case c >= 500 && c < 600:
 			// Server error. Retry it.

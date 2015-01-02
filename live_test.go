@@ -42,7 +42,11 @@ func TestLiveIndex(t *testing.T) {
 func TestLiveIndexError(t *testing.T) {
 	// Index with errors.
 
-	b := New([]string{addr}, OptFlush(10*time.Millisecond))
+	errs := make(chan ActionError)
+	b := New([]string{addr},
+		OptFlush(10*time.Millisecond),
+		OptError(func(e ActionError) { errs <- e }),
+	)
 
 	ins1 := Action{
 		Type: Index,
@@ -71,8 +75,8 @@ func TestLiveIndexError(t *testing.T) {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
 	}
 
-	// ins2 has a fatal error and should be reported on the error channel.
-	errored := <-b.Errors()
+	// ins2 has a fatal error and should be reported via the error cb.
+	errored := <-errs
 	if have, want := errored.Action, ins2; have != want {
 		t.Fatalf("have %v, want %v", have, want)
 	}
@@ -84,18 +88,16 @@ func TestLiveIndexError(t *testing.T) {
 		t.Fatalf("have %s, want %s", have, want)
 	}
 	// That should have been our only error.
-	if _, ok := <-b.Errors(); ok {
+	if _, ok := <-errs; ok {
 		t.Fatalf("error channel should have been closed")
 	}
 }
 
 func TestLiveMany(t *testing.T) {
-	b := New([]string{addr}, OptFlush(10*time.Millisecond))
-	go func() {
-		for e := range b.Errors() {
-			fmt.Printf("error: %v\n", e)
-		}
-	}()
+	b := New([]string{addr},
+		OptFlush(10*time.Millisecond),
+		OptError(func(e ActionError) { t.Fatal(e) }),
+	)
 
 	var (
 		clients   = 10

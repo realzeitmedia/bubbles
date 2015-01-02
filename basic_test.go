@@ -71,7 +71,12 @@ func TestIndexErr(t *testing.T) {
 	)
 	defer es.Stop()
 
-	b := New([]string{es.Addr()}, OptConnCount(2), OptFlush(10*time.Millisecond))
+	errs := make(chan ActionError)
+	b := New([]string{es.Addr()},
+		OptConnCount(2),
+		OptFlush(10*time.Millisecond),
+		OptError(func(e ActionError) { errs <- e }),
+	)
 
 	ins1 := Action{
 		Type: Index,
@@ -98,7 +103,7 @@ func TestIndexErr(t *testing.T) {
 	select {
 	case <-time.After(1 * time.Second):
 		t.Fatalf("timeout")
-	case aerr = <-b.Errors():
+	case aerr = <-errs:
 	}
 	if have, want := aerr.Action, ins2; have != want {
 		t.Fatalf("wrong err. have %v, want %v", have, want)

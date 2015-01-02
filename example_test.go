@@ -8,18 +8,17 @@ import (
 )
 
 func Example() {
-	b := bubbles.New([]string{"127.0.0.1:9200"}, bubbles.OptConnCount(2), bubbles.OptFlush(1*time.Second))
+	b := bubbles.New([]string{"127.0.0.1:9200"},
+		bubbles.OptConnCount(2),
+		bubbles.OptFlush(1*time.Second),
+		bubbles.OptError(func(e bubbles.ActionError) {
+			fmt.Printf("Err: %s\n", e)
+		}),
+	)
 	defer func() {
 		// Stop() returns all in-flight actions.
 		for _, a := range b.Stop() {
 			fmt.Printf("Discarding action %v\n", a)
-		}
-	}()
-
-	go func() {
-		// Errors must be read.
-		for err := range b.Errors() {
-			fmt.Printf("Err: %s\n", err)
 		}
 	}()
 
