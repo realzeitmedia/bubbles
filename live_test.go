@@ -42,7 +42,7 @@ func TestLiveIndex(t *testing.T) {
 func TestLiveIndexError(t *testing.T) {
 	// Index with errors.
 
-	errs := make(chan ActionError)
+	errs := make(chan ActionError, 1)
 	b := New([]string{addr},
 		OptFlush(10*time.Millisecond),
 		OptError(func(e ActionError) { errs <- e }),
@@ -87,6 +87,7 @@ func TestLiveIndexError(t *testing.T) {
 	if !strings.HasPrefix(have, want) {
 		t.Fatalf("have %s, want %s", have, want)
 	}
+	close(errs)
 	// That should have been our only error.
 	if _, ok := <-errs; ok {
 		t.Fatalf("error channel should have been closed")
