@@ -45,32 +45,6 @@ type Bubbles struct {
 	serverTimeout    time.Duration
 }
 
-type bulkRes struct {
-	Took   int                        `json:"took"`
-	Items  []map[string]bulkResStatus `json:"items"`
-	Errors bool                       `json:"errors"`
-}
-
-type bulkResStatus struct {
-	Index   string `json:"_index"`
-	Type    string `json:"_type"`
-	ID      string `json:"_id"`
-	Version int    `json:"_version"`
-	Status  int    `json:"status"`
-	Error   string `json:"error"`
-}
-
-// ActionError wraps an Action we won't retry. It implements the error interface.
-type ActionError struct {
-	Action Action
-	Msg    string
-	Server string
-}
-
-func (e ActionError) Error() string {
-	return fmt.Sprintf("%s: %s", e.Server, e.Msg)
-}
-
 // Opt is any option to New()
 type Opt func(*Bubbles)
 
@@ -182,8 +156,10 @@ func client(b *Bubbles, addr string) {
 	// defer log.Printf("stopping client to %s\n", addr)
 
 	cl := http.Client{
-		Timeout:       b.serverTimeout,
-		CheckRedirect: noRedirect,
+		Timeout: b.serverTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return errors.New("no redirect")
+		},
 	}
 
 	for {
@@ -291,6 +267,19 @@ gather:
 	return nil
 }
 
+type bulkRes struct {
+	Took   int  `json:"took"`
+	Errors bool `json:"errors"`
+	Items  []map[string]struct {
+		Index   string `json:"_index"`
+		Type    string `json:"_type"`
+		ID      string `json:"_id"`
+		Version int    `json:"_version"`
+		Status  int    `json:"status"`
+		Error   string `json:"error"`
+	} `json:"items"`
+}
+
 func postActions(cl http.Client, url string, actions []Action) (*bulkRes, error) {
 	// TODO: bytestring as argument
 	// TODO: don't chunk.
@@ -321,6 +310,13 @@ func postActions(cl http.Client, url string, actions []Action) (*bulkRes, error)
 	return &bulk, nil
 }
 
-func noRedirect(req *http.Request, via []*http.Request) error {
-	return errors.New("no redirect")
+// ActionError wraps an Action we won't retry. It implements the error interface.
+type ActionError struct {
+	Action Action
+	Msg    string
+	Server string
+}
+
+func (e ActionError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Server, e.Msg)
 }
