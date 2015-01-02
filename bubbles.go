@@ -25,8 +25,8 @@ const (
 	// maximum time Stop() will take.
 	DefaultServerTimeout = 10 * time.Second
 
-	// DefaultCPH is the number of connections per hosts.
-	DefaultCPH = 2
+	// DefaultConnCount is the number of connections per hosts.
+	DefaultConnCount = 2
 
 	serverErrorWait = 1 * time.Second
 )
@@ -40,7 +40,7 @@ type Bubbles struct {
 	quit             chan struct{}
 	wg               sync.WaitGroup
 	maxDocumentCount int
-	cph              int
+	connCount        int
 	flushTimeout     time.Duration
 	serverTimeout    time.Duration
 }
@@ -75,10 +75,10 @@ func (e ActionError) Error() string {
 type opt func(*Bubbles)
 
 // OptConnCount is an option to New() to specify the number of connections per
-// host. The default is DefaultCPH.
+// host. The default is DefaultConnCount.
 func OptConnCount(n int) opt {
 	return func(b *Bubbles) {
-		b.cph = n
+		b.connCount = n
 	}
 }
 
@@ -117,18 +117,18 @@ func New(addrs []string, opts ...opt) *Bubbles {
 		error:            make(chan ActionError, 10),
 		quit:             make(chan struct{}),
 		maxDocumentCount: DefaultMaxDocumentsPerBatch,
-		cph:              DefaultCPH,
+		connCount:        DefaultConnCount,
 		flushTimeout:     DefaultFlushTimeout,
 		serverTimeout:    DefaultServerTimeout,
 	}
 	for _, o := range opts {
 		o(&b)
 	}
-	b.retryQ = make(chan Action, len(addrs)*b.cph)
+	b.retryQ = make(chan Action, len(addrs)*b.connCount)
 
 	// Start a go routine per connection per host
 	for _, a := range addrs {
-		for i := 0; i < b.cph; i++ {
+		for i := 0; i < b.connCount; i++ {
 			b.wg.Add(1)
 			go func(a string) {
 				client(&b, a)
