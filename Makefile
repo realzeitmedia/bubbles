@@ -9,7 +9,7 @@ livetest:
 	go test -tags live -v
 
 vet:
-	go vet
+	go vet *.go
 
 lint:
 	golint .

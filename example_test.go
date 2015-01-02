@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/realzeit/bubbles"
+	"github.com/realzeitmedia/bubbles"
 )
 
 func Example() {

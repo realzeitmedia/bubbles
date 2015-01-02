@@ -80,7 +80,7 @@ func TestLiveIndexError(t *testing.T) {
 	// ins2 has a fatal error and should be reported on the error channel.
 	errored := <-b.Errors()
 	if have, want := errored.Action, ins2; have != want {
-		t.Fatalf("have %d, want %d", have, want)
+		t.Fatalf("have %v, want %v", have, want)
 	}
 	// Check the error message. The last part has some pointers in there so we
 	// can't check that.

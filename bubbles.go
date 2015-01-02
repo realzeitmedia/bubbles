@@ -142,7 +142,7 @@ func (b *bubbles) Errors() <-chan ActionError {
 }
 
 // Enqueue queues a single action in a routine. It will block if all bulk
-// processers are busy.
+// processors are busy.
 func (b bubbles) Enqueue(a *Action) {
 	b.q <- a
 }
@@ -301,7 +301,7 @@ func postActions(cl http.Client, url string, actions []*Action) (*bulkRes, error
 		buf.Write(a.Buf())
 	}
 
-	resp, err := cl.Post(url, "application/x-www-form-urlencoded", &buf)
+	resp, err := cl.Post(url, "application/json", &buf)
 	if err != nil {
 		return nil, err
 	}
