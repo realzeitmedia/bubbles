@@ -1,9 +1,15 @@
 package bubbles
 
 import (
+	"io/ioutil"
+	"log"
 	"testing"
 	"time"
 )
+
+func init() {
+	log.SetOutput(ioutil.Discard)
+}
 
 func TestIndex(t *testing.T) {
 	es := newMockES(t, func() string {
