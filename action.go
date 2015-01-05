@@ -23,7 +23,7 @@ const (
 type Action struct {
 	Type     ActionType
 	MetaData MetaData
-	Document string // without any \n! // TODO: []byte ?
+	Document string // without any \n!
 }
 
 // MetaData tells ES how to deal with the document. Index and Type are
@@ -33,7 +33,7 @@ type MetaData struct {
 	Type            string `json:"_type"`
 	ID              string `json:"_id,omitempty"`
 	RetryOnConflict int    `json:"_retry_on_conflict,omitempty"`
-	// TODO: Check all these
+	// All those are not checked:
 	Refresh     bool   `json:"refresh,omitempty"`
 	Timestamp   int    `json:"_timestamp,omitempty"`
 	TTL         int    `json:"ttl,omitempty"`

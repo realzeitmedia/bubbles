@@ -28,7 +28,7 @@ const (
 	// DefaultConnCount is the number of connections per hosts.
 	DefaultConnCount = 2
 
-	serverErrorWait = 1 * time.Second
+	serverErrorWait = 3 * time.Second
 )
 
 // Bubbles is the main struct to control a queue of Actions going to the
@@ -151,9 +151,7 @@ func (b *Bubbles) Stop() []Action {
 // client talks to ES. This runs in a go routine in a loop and deals with a
 // single ES address.
 func client(b *Bubbles, addr string) {
-	url := fmt.Sprintf("http://%s/_bulk", addr) // TODO: https?
-	// log.Printf("starting client to %s\n", addr)
-	// defer log.Printf("stopping client to %s\n", addr)
+	url := fmt.Sprintf("http://%s/_bulk", addr)
 
 	cl := http.Client{
 		Timeout: b.serverTimeout,
@@ -174,7 +172,6 @@ func client(b *Bubbles, addr string) {
 			select {
 			case <-b.quit:
 			case <-time.After(serverErrorWait):
-				// TODO: backoff period
 			}
 		}
 	}
@@ -235,13 +232,23 @@ gather:
 		// Simple case, no errors present.
 		return nil
 	}
+
+	// Invalid response from ES.
+	if len(actions) != len(res.Items) {
+		log.Printf("invalid response from ES. Retrying the whole batch.")
+		for _, a := range actions {
+			b.retryQ <- a
+		}
+		return nil
+	}
 	// Figure out which actions have errors.
 	for i, e := range res.Items {
-		a := actions[i] // TODO: sanity check
+		a := actions[i]
 		el, ok := e[string(a.Type)]
 		if !ok {
-			// TODO: this
-			fmt.Printf("Non matching action!\n")
+			// Unexpected reply from ES.
+			log.Printf("invalid response from ES. Retrying a single item.")
+			b.retryQ <- a
 			continue
 		}
 
@@ -283,13 +290,12 @@ type bulkRes struct {
 }
 
 func postActions(cl http.Client, url string, actions []Action) (*bulkRes, error) {
-	// TODO: bytestring as argument
-	// TODO: don't chunk.
 	buf := bytes.Buffer{}
 	for _, a := range actions {
 		buf.Write(a.Buf())
 	}
 
+	// This doesn't Chunk.
 	resp, err := cl.Post(url, "application/json", &buf)
 	if err != nil {
 		return nil, err

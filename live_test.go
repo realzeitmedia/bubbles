@@ -82,7 +82,7 @@ func TestLiveIndexError(t *testing.T) {
 	}
 	// Check the error message. The last part has some pointers in there so we
 	// can't check that.
-	want := `http://` + addr + `/_bulk: error 400: MapperParsingException[failed to parse]; nested: JsonParseException` // &c.
+	want := `http://` + addr + `/_bulk: index error 400: MapperParsingException[failed to parse]; nested: JsonParseException` // &c.
 	have := errored.Error()
 	if !strings.HasPrefix(have, want) {
 		t.Fatalf("have %s, want %s", have, want)
