@@ -320,5 +320,5 @@ type ActionError struct {
 }
 
 func (e ActionError) Error() string {
-	return fmt.Sprintf("%s: %s", e.Server, e.Msg)
+	return fmt.Sprintf("%s: %s %s", e.Server, e.Action.Type, e.Msg)
 }
