@@ -29,15 +29,15 @@ type Action struct {
 // MetaData tells ES how to deal with the document. Index and Type are
 // required, the rest is not. See the ES documentation for what they mean.
 type MetaData struct {
-	Index string `json:"_index"`
-	Type  string `json:"_type"`
-	ID    string `json:"_id,omitempty"`
+	Index           string `json:"_index"`
+	Type            string `json:"_type"`
+	ID              string `json:"_id,omitempty"`
+	RetryOnConflict int    `json:"_retry_on_conflict,omitempty"`
 	// TODO: Check all these
-	Refresh         bool   `json:"refresh,omitempty"`
-	RetryOnConflict int    `json:"retry_on_conflict,omitempty"`
-	Timestamp       int    `json:"_timestamp,omitempty"`
-	TTL             int    `json:"ttl,omitempty"`
-	Consistency     string `json:"consistency,omitempty"`
+	Refresh     bool   `json:"refresh,omitempty"`
+	Timestamp   int    `json:"_timestamp,omitempty"`
+	TTL         int    `json:"ttl,omitempty"`
+	Consistency string `json:"consistency,omitempty"`
 }
 
 // Buf returns the command ready for the ES bulk buffer
