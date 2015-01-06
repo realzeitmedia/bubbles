@@ -14,3 +14,9 @@ Run `make test` for the basics, no ElasticSearch daemon required.
 
 Run `make livetest` if there is an ElasticSearch available on localhost:9200.
 It'll delete the index 'bubbles'.
+
+# TODO
+
+Requeue error 429s:
+http://XX.XX.XX.XX:9200/_bulk: update error 429: EsRejectedExecutionException[rejected execution (queue capacity 50) on org.elasticsearch.action.support.replication.TransportShardReplicationOperationAction$AsyncShardOperationAction$1@713e81b2]
+
