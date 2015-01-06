@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	addr  = "localhost:9200"
+	addr  = "localhost" // no port, default is :9200
 	index = "bubbles"
 )
 
@@ -82,7 +82,7 @@ func TestLiveIndexError(t *testing.T) {
 	}
 	// Check the error message. The last part has some pointers in there so we
 	// can't check that.
-	want := `http://` + addr + `/_bulk: index error 400: MapperParsingException[failed to parse]; nested: JsonParseException` // &c.
+	want := `http://` + addr + `:9200/_bulk: index error 400: MapperParsingException[failed to parse]; nested: JsonParseException` // &c.
 	have := errored.Error()
 	if !strings.HasPrefix(have, want) {
 		t.Fatalf("have %s, want %s", have, want)
@@ -104,7 +104,7 @@ func TestLiveMany(t *testing.T) {
 		clients   = 10
 		documents = 10000
 	)
-	req, err := http.NewRequest("DELETE", fmt.Sprintf("http://%s/%s", addr, index), nil)
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("http://%s:9200/%s", addr, index), nil)
 	if err != nil {
 		panic(err)
 	}
@@ -177,7 +177,7 @@ func TestLiveMany(t *testing.T) {
 func getDocCount() int {
 	// _cat/indices gives a line such as:
 	// 'yellow open bubbles 5 1 10001 0 314.8kb 314.8kb\n'
-	res, err := http.Get(fmt.Sprintf("http://%s/_cat/indices/%s", addr, index))
+	res, err := http.Get(fmt.Sprintf("http://%s:9200/_cat/indices/%s", addr, index))
 	if err != nil {
 		panic(err)
 	}

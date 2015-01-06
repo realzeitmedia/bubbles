@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -29,6 +30,8 @@ const (
 	DefaultConnCount = 2
 
 	serverErrorWait = 3 * time.Second
+
+	defaultESPort = "9200"
 )
 
 // Bubbles is the main struct to control a queue of Actions going to the
@@ -90,9 +93,9 @@ func OptError(f func(ActionError)) Opt {
 	}
 }
 
-// New makes a new ES bulk inserter. It needs a list with 'ip:port' addresses,
-// options are added via the Opt* functions. Be sure to read the Errors()
-// channel.
+// New makes a new ES bulk inserter. It needs a list with 'ip' or 'ip:port'
+// addresses, options are added via the Opt* functions. Be sure to pass in an
+// OptError() callback.
 func New(addrs []string, opts ...Opt) *Bubbles {
 	b := Bubbles{
 		q:                make(chan Action),
@@ -109,12 +112,13 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 
 	// Start a go routine per connection per host
 	for _, a := range addrs {
+		addr := withPort(a, defaultESPort)
 		for i := 0; i < b.connCount; i++ {
 			b.wg.Add(1)
 			go func(a string) {
 				client(&b, a)
 				b.wg.Done()
-			}(a)
+			}(addr)
 		}
 	}
 	return &b
@@ -327,4 +331,13 @@ type ActionError struct {
 
 func (e ActionError) Error() string {
 	return fmt.Sprintf("%s: %s %s", e.Server, e.Action.Type, e.Msg)
+}
+
+// withPort adds a default port to an address string.
+func withPort(a, port string) string {
+	if _, _, err := net.SplitHostPort(a); err != nil {
+		// no port found.
+		return net.JoinHostPort(a, port)
+	}
+	return a
 }
