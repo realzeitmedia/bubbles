@@ -260,6 +260,11 @@ gather:
 		switch {
 		case c >= 200 && c < 300:
 			// Document accepted by ES.
+		case c == 429 || (c >= 500 && c < 600):
+			// Server error. Retry it.
+			// We get a 429 when the bulk queue is full, which we just retry as
+			// well.
+			b.retryQ <- a
 		case c >= 400 && c < 500:
 			// Some error. Nothing we can do with it.
 			if b.errorCb != nil {
@@ -269,9 +274,6 @@ gather:
 					Server: url,
 				})
 			}
-		case c >= 500 && c < 600:
-			// Server error. Retry it.
-			b.retryQ <- a
 		default:
 			// No idea.
 			fmt.Printf("unexpected status: %d. Ignoring document.\n", c)
