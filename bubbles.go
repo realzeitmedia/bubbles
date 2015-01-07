@@ -175,6 +175,7 @@ func client(b *Bubbles, addr string) {
 			log.Printf("server error: %s", err)
 			select {
 			case <-b.quit:
+				return
 			case <-time.After(serverErrorWait):
 			}
 		}
