@@ -108,7 +108,7 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 	for _, o := range opts {
 		o(&b)
 	}
-	b.retryQ = make(chan Action, len(addrs)*b.connCount)
+	b.retryQ = make(chan Action, len(addrs)*b.connCount*b.maxDocumentCount)
 
 	// Start a go routine per connection per host
 	for _, a := range addrs {
