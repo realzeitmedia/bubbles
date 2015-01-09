@@ -121,10 +121,12 @@ func TestShutdownTimeout(t *testing.T) {
 	})
 	defer es.Stop()
 
+	maxDocs := 5
 	b := New([]string{es.Addr()},
 		OptConnCount(1),
 		OptFlush(10*time.Millisecond),
 		OptServerTimeout(100*time.Millisecond),
+		OptMaxDocs(5),
 	)
 
 	ins := Action{
@@ -136,15 +138,23 @@ func TestShutdownTimeout(t *testing.T) {
 		},
 		Document: `{"field1": "value1"}`,
 	}
-	b.Enqueue() <- ins
+	docs := maxDocs
+	for i := 0; i < docs; i++ {
+		b.Enqueue() <- ins
+	}
 
 	time.Sleep(20 * time.Millisecond)
-	now := time.Now()
-	pending := b.Stop()
-	if time.Since(now) > 1*time.Second {
+	p := make(chan []Action)
+	go func() {
+		p <- b.Stop()
+	}()
+	var pending []Action
+	select {
+	case pending = <-p:
+	case <-time.After(1 * time.Second):
 		t.Fatalf("Stop() took too long")
 	}
-	if have, want := len(pending), 1; have != want {
+	if have, want := len(pending), docs; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
 	}
 	if pending[0] != ins {
