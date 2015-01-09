@@ -22,8 +22,8 @@ const (
 	// to send it to a server.
 	DefaultFlushTimeout = 10 * time.Second
 
-	// DefaultServerTimeout is the time we give ES to respond. This is also the
-	// maximum time Stop() will take.
+	// DefaultServerTimeout is the time we give ElasticSearch to respond. This
+	// is also the maximum time Stop() will take.
 	DefaultServerTimeout = 10 * time.Second
 
 	// DefaultConnCount is the number of connections per hosts.
@@ -31,7 +31,7 @@ const (
 
 	serverErrorWait = 3 * time.Second
 
-	defaultESPort = "9200"
+	defaultElasticSearchPort = "9200"
 )
 
 // Bubbles is the main struct to control a queue of Actions going to the
@@ -48,7 +48,7 @@ type Bubbles struct {
 	serverTimeout    time.Duration
 }
 
-// Opt is any option to New()
+// Opt is any option to New().
 type Opt func(*Bubbles)
 
 // OptConnCount is an option to New() to specify the number of connections per
@@ -68,9 +68,9 @@ func OptFlush(d time.Duration) Opt {
 }
 
 // OptServerTimeout is an option to New() to specify the timeout of a single
-// batch POST to ES. This value is also the maximum time Stop() will take. All
-// actions in a bulk which is timed out will be retried. The default is
-// DefaultServerTimeout.
+// batch POST to ElasticSearch. This value is also the maximum time Stop() will
+// take. All actions in a bulk which is timed out will be retried. The default
+// is DefaultServerTimeout.
 func OptServerTimeout(d time.Duration) Opt {
 	return func(b *Bubbles) {
 		b.serverTimeout = d
@@ -93,9 +93,9 @@ func OptError(f func(ActionError)) Opt {
 	}
 }
 
-// New makes a new ES bulk inserter. It needs a list with 'ip' or 'ip:port'
-// addresses, options are added via the Opt* functions. Be sure to pass in an
-// OptError() callback.
+// New makes a new ElasticSearch bulk inserter. It needs a list with 'ip' or
+// 'ip:port' addresses, options are added via the Opt* functions. Be sure to
+// pass in an OptError() callback.
 func New(addrs []string, opts ...Opt) *Bubbles {
 	b := Bubbles{
 		q:                make(chan Action),
@@ -112,7 +112,7 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 
 	// Start a go routine per connection per host
 	for _, a := range addrs {
-		addr := withPort(a, defaultESPort)
+		addr := withPort(a, defaultElasticSearchPort)
 		for i := 0; i < b.connCount; i++ {
 			b.wg.Add(1)
 			go func(a string) {
@@ -130,9 +130,9 @@ func (b *Bubbles) Enqueue() chan<- Action {
 	return b.q
 }
 
-// Stop shuts down all ES clients. It'll return all Action entries which were
-// not yet processed, or were up for a retry. It can take OptServerTimeout to
-// complete.
+// Stop shuts down all ElasticSearch clients. It'll return all Action entries
+// which were not yet processed, or were up for a retry. It can take
+// OptServerTimeout to complete.
 func (b *Bubbles) Stop() []Action {
 	close(b.quit)
 	// There is no explicit timeout, we rely on b.serverTimeout to shut down
@@ -152,8 +152,8 @@ func (b *Bubbles) Stop() []Action {
 	return pending
 }
 
-// client talks to ES. This runs in a go routine in a loop and deals with a
-// single ES address.
+// client talks to ElasticSearch. This runs in a go routine in a loop and deals
+// with a single ElasticSearch address.
 func client(b *Bubbles, addr string) {
 	url := fmt.Sprintf("http://%s/_bulk", addr)
 
@@ -238,9 +238,9 @@ gather:
 		return nil
 	}
 
-	// Invalid response from ES.
+	// Invalid response from ElasticSearch.
 	if len(actions) != len(res.Items) {
-		log.Printf("invalid response from ES. Retrying the whole batch.")
+		log.Printf("invalid response from ElasticSearch. Retrying the whole batch.")
 		for _, a := range actions {
 			b.retryQ <- a
 		}
@@ -251,8 +251,8 @@ gather:
 		a := actions[i]
 		el, ok := e[string(a.Type)]
 		if !ok {
-			// Unexpected reply from ES.
-			log.Printf("invalid response from ES. Retrying a single item.")
+			// Unexpected reply from ElasticSearch.
+			log.Printf("invalid response from ElasticSearch. Retrying a single item.")
 			b.retryQ <- a
 			continue
 		}
@@ -260,7 +260,7 @@ gather:
 		c := el.Status
 		switch {
 		case c >= 200 && c < 300:
-			// Document accepted by ES.
+			// Document accepted by ElasticSearch.
 		case c == 429 || (c >= 500 && c < 600):
 			// Server error. Retry it.
 			// We get a 429 when the bulk queue is full, which we just retry as

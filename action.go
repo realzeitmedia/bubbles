@@ -8,7 +8,7 @@ import (
 // ActionType is the type of the action.
 type ActionType string
 
-// The actiontypes and what they are called by ES.
+// The actiontypes and what they are called by ElasticSearch.
 const (
 	Index  ActionType = "index"
 	Create            = "create"
@@ -26,8 +26,9 @@ type Action struct {
 	Document string // without any \n!
 }
 
-// MetaData tells ES how to deal with the document. Index and Type are
-// required, the rest is not. See the ES documentation for what they mean.
+// MetaData tells ElasticSearch how to deal with the document. Index and Type
+// are required, the rest is not. See the ElasticSearch documentation for what
+// they mean.
 type MetaData struct {
 	Index           string `json:"_index"`
 	Type            string `json:"_type"`
@@ -40,7 +41,7 @@ type MetaData struct {
 	Consistency string `json:"consistency,omitempty"`
 }
 
-// Buf returns the command ready for the ES bulk buffer
+// Buf returns the command ready for the ElasticSearch bulk buffer.
 func (a *Action) Buf() []byte {
 	switch a.Type {
 	default:
