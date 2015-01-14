@@ -16,7 +16,7 @@ import (
 const (
 	// DefaultMaxDocumentsPerBatch is the number of documents a batch needs to
 	// have before it is send. This is per connection.
-	DefaultMaxDocumentsPerBatch = 10
+	DefaultMaxDocumentsPerBatch = 1000
 
 	// DefaultFlushTimeout is the maximum time we batch something before we try
 	// to send it to a server.
