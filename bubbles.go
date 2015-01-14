@@ -35,7 +35,7 @@ const (
 )
 
 var (
-	errInvalidResponse = errors.New("invalid response from ElasticSearch")
+	errInvalidResponse = errors.New("invalid response")
 )
 
 // Bubbles is the main struct to control a queue of Actions going to the
@@ -175,9 +175,8 @@ func client(b *Bubbles, addr string) {
 			return
 		default:
 		}
-		if err := runBatch(b, cl, url); err != nil {
-			// runBatch only returns an error on server error.
-			b.e.Error(err)
+		if runBatch(b, cl, url) {
+			// Some error, back off.
 			select {
 			case <-b.quit:
 				return
@@ -193,9 +192,9 @@ func client(b *Bubbles, addr string) {
 	}
 }
 
-// runBatch gathers and deals with a batch of actions. It'll return a non-nil
-// error if the whole server gave an error.
-func runBatch(b *Bubbles, cl http.Client, url string) error {
+// runBatch gathers and deals with a batch of actions. It returns
+// whether there was an error.
+func runBatch(b *Bubbles, cl http.Client, url string) bool {
 	actions := make([]Action, 0, b.maxDocumentCount)
 	// First use all retry actions.
 retry:
@@ -221,7 +220,7 @@ gather:
 			for _, a := range actions {
 				b.retryQ <- a
 			}
-			return nil
+			return false
 		case <-t:
 			// this case is not enabled until we've got an action
 			break gather
@@ -235,17 +234,18 @@ gather:
 	res, err := postActions(cl, url, actions)
 	if err != nil {
 		// A server error. Retry these actions later.
+		b.e.Error(err)
 		for _, a := range actions {
 			b.retryQ <- a
 		}
-		return err
+		return true
 	}
 
 	// Server has accepted the request an sich, but there can be errors in the
 	// individual actions.
 	if !res.Errors {
 		// Simple case, no errors present.
-		return nil
+		return false
 	}
 
 	// Invalid response from ElasticSearch.
@@ -254,7 +254,7 @@ gather:
 		for _, a := range actions {
 			b.retryQ <- a
 		}
-		return nil
+		return true
 	}
 	// Figure out which actions have errors.
 	for i, e := range res.Items {
@@ -293,7 +293,7 @@ gather:
 			b.e.Error(fmt.Errorf("unwelcome response %d: %s", c, el.Error))
 		}
 	}
-	return nil
+	return true
 }
 
 type bulkRes struct {
