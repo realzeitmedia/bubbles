@@ -34,6 +34,11 @@ const (
 	defaultElasticSearchPort = "9200"
 )
 
+var (
+	errInvalidResponse = errors.New("invalid response")
+	errItemErrors      = errors.New("item(s) with errors")
+)
+
 // Bubbles is the main struct to control a queue of Actions going to the
 // ElasticSearch servers.
 type Bubbles struct {
@@ -244,7 +249,7 @@ gather:
 		for _, a := range actions {
 			b.retryQ <- a
 		}
-		return nil
+		return errInvalidResponse
 	}
 	// Figure out which actions have errors.
 	for i, e := range res.Items {
@@ -280,7 +285,7 @@ gather:
 			fmt.Printf("unexpected status: %d. Ignoring document.\n", c)
 		}
 	}
-	return nil
+	return errItemErrors
 }
 
 type bulkRes struct {
