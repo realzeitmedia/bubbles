@@ -28,7 +28,8 @@ const (
 	// DefaultConnCount is the number of connections per hosts.
 	DefaultConnCount = 2
 
-	serverErrorWait = 3 * time.Second
+	serverErrorWait = 500 * time.Millisecond
+	serverErrorWaitMax = 16 * time.Second
 
 	defaultElasticSearchPort = "9200"
 )
@@ -167,6 +168,7 @@ func client(b *Bubbles, addr string) {
 		},
 	}
 
+	wait := serverErrorWait
 	for {
 		select {
 		case <-b.quit:
@@ -179,11 +181,16 @@ func client(b *Bubbles, addr string) {
 			select {
 			case <-b.quit:
 				return
-			case <-time.After(serverErrorWait):
+			case <-time.After(wait):
+				wait *= 2
+				if wait >= serverErrorWaitMax {
+					wait = serverErrorWaitMax
+				}
 			}
+			continue
 		}
+		wait = serverErrorWait
 	}
-
 }
 
 // runBatch gathers and deals with a batch of actions. It'll return a non-nil
