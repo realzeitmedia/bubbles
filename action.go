@@ -16,7 +16,7 @@ const (
 	Update            = "update"
 )
 
-// Action is a single entry in a Bulk document. It might be re-send to different
+// Action is a single entry in a Bulk document. It might be re-sent to different
 // servers while there are errors. The 'Document' needs to be a valid JSON
 // insert/update/&c document, but can't contain any newline. 'Document' is
 // ignored for 'delete' actions.
