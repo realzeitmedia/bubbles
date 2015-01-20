@@ -28,7 +28,7 @@ const (
 	// DefaultConnCount is the number of connections per hosts.
 	DefaultConnCount = 2
 
-	serverErrorWait = 500 * time.Millisecond
+	serverErrorWait    = 500 * time.Millisecond
 	serverErrorWaitMax = 16 * time.Second
 
 	defaultElasticSearchPort = "9200"
@@ -276,17 +276,19 @@ gather:
 			// We get a 429 when the bulk queue is full, which we just retry as
 			// well.
 			b.e.Warning(ActionError{
-				Action: a,
-				Msg:    fmt.Sprintf("transient error %d: %s", c, el.Error),
-				Server: url,
+				Action:     a,
+				StatusCode: c,
+				Msg:        fmt.Sprintf("transient error %d: %s", c, el.Error),
+				Server:     url,
 			})
 			b.retryQ <- a
 		case c >= 400 && c < 500:
 			// Some error. Nothing we can do with it.
 			b.e.Error(ActionError{
-				Action: a,
-				Msg:    fmt.Sprintf("error %d: %s", c, el.Error),
-				Server: url,
+				Action:     a,
+				StatusCode: c,
+				Msg:        fmt.Sprintf("error %d: %s", c, el.Error),
+				Server:     url,
 			})
 		default:
 			// No idea.
@@ -340,9 +342,10 @@ func postActions(cl http.Client, url string, actions []Action) (*bulkRes, error)
 
 // ActionError wraps an Action we won't retry. It implements the error interface.
 type ActionError struct {
-	Action Action
-	Msg    string
-	Server string
+	Action     Action
+	StatusCode int
+	Msg        string
+	Server     string
 }
 
 func (e ActionError) Error() string {
