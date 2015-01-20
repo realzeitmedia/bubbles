@@ -42,10 +42,10 @@ func TestLiveIndex(t *testing.T) {
 func TestLiveIndexError(t *testing.T) {
 	// Index with errors.
 
-	errs := make(chan ActionError, 1)
+	errs := ErrorChan(make(chan ActionError, 1))
 	b := New([]string{addr},
 		OptFlush(10*time.Millisecond),
-		OptError(func(e ActionError) { errs <- e }),
+		OptErrer(errs),
 	)
 
 	ins1 := Action{
@@ -97,7 +97,6 @@ func TestLiveIndexError(t *testing.T) {
 func TestLiveMany(t *testing.T) {
 	b := New([]string{addr},
 		OptFlush(10*time.Millisecond),
-		OptError(func(e ActionError) { t.Fatal(e) }),
 	)
 
 	var (
