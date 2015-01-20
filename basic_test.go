@@ -62,6 +62,21 @@ func TestIndexNoES(t *testing.T) {
 	}
 }
 
+type ErrorChan chan ActionError
+
+func (e ErrorChan) Error(err error) {
+	switch t := err.(type) {
+	case ActionError:
+		e <- t
+	default:
+		log.Fatal(err)
+	}
+}
+
+func (e ErrorChan) Warning(err error) {
+	log.Fatal(err)
+}
+
 func TestIndexErr(t *testing.T) {
 	es := newMockES(
 		t,
@@ -71,11 +86,11 @@ func TestIndexErr(t *testing.T) {
 	)
 	defer es.Stop()
 
-	errs := make(chan ActionError)
+	errs := ErrorChan(make(chan ActionError))
 	b := New([]string{es.Addr()},
 		OptConnCount(2),
 		OptFlush(10*time.Millisecond),
-		OptError(func(e ActionError) { errs <- e }),
+		OptErrer(errs),
 	)
 
 	ins1 := Action{

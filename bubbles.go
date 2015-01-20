@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"sync"
@@ -34,18 +33,22 @@ const (
 	defaultElasticSearchPort = "9200"
 )
 
+var (
+	errInvalidResponse = errors.New("invalid response from ElasticSearch")
+)
+
 // Bubbles is the main struct to control a queue of Actions going to the
 // ElasticSearch servers.
 type Bubbles struct {
 	q                chan Action
 	retryQ           chan Action
-	errorCb          func(ActionError)
 	quit             chan struct{}
 	wg               sync.WaitGroup
 	maxDocumentCount int
 	connCount        int
 	flushTimeout     time.Duration
 	serverTimeout    time.Duration
+	e                Errer
 }
 
 // Opt is any option to New().
@@ -85,17 +88,16 @@ func OptMaxDocs(n int) Opt {
 	}
 }
 
-// OptError is an option to New() to specify a callback on error. The argument
-// will be an ActionError.  The default is no callback.
-func OptError(f func(ActionError)) Opt {
+// OptErrer is an option to New() to specify an error handler. The default
+// handler uses the log module.
+func OptErrer(e Errer) Opt {
 	return func(b *Bubbles) {
-		b.errorCb = f
+		b.e = e
 	}
 }
 
 // New makes a new ElasticSearch bulk inserter. It needs a list with 'ip' or
-// 'ip:port' addresses, options are added via the Opt* functions. Be sure to
-// pass in an OptError() callback.
+// 'ip:port' addresses, options are added via the Opt* functions.
 func New(addrs []string, opts ...Opt) *Bubbles {
 	b := Bubbles{
 		q:                make(chan Action),
@@ -104,6 +106,7 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 		connCount:        DefaultConnCount,
 		flushTimeout:     DefaultFlushTimeout,
 		serverTimeout:    DefaultServerTimeout,
+		e:                DefaultErrer{},
 	}
 	for _, o := range opts {
 		o(&b)
@@ -172,7 +175,7 @@ func client(b *Bubbles, addr string) {
 		}
 		if err := runBatch(b, cl, url); err != nil {
 			// runBatch only returns an error on server error.
-			log.Printf("server error: %s", err)
+			b.e.Error(err)
 			select {
 			case <-b.quit:
 				return
@@ -240,7 +243,7 @@ gather:
 
 	// Invalid response from ElasticSearch.
 	if len(actions) != len(res.Items) {
-		log.Printf("invalid response from ElasticSearch. Retrying the whole batch.")
+		b.e.Error(errInvalidResponse)
 		for _, a := range actions {
 			b.retryQ <- a
 		}
@@ -252,7 +255,7 @@ gather:
 		el, ok := e[string(a.Type)]
 		if !ok {
 			// Unexpected reply from ElasticSearch.
-			log.Printf("invalid response from ElasticSearch. Retrying a single item.")
+			b.e.Error(errInvalidResponse)
 			b.retryQ <- a
 			continue
 		}
@@ -265,19 +268,22 @@ gather:
 			// Server error. Retry it.
 			// We get a 429 when the bulk queue is full, which we just retry as
 			// well.
+			b.e.Warning(ActionError{
+				Action: a,
+				Msg:    fmt.Sprintf("transient error %d: %s", c, el.Error),
+				Server: url,
+			})
 			b.retryQ <- a
 		case c >= 400 && c < 500:
 			// Some error. Nothing we can do with it.
-			if b.errorCb != nil {
-				b.errorCb(ActionError{
-					Action: a,
-					Msg:    fmt.Sprintf("error %d: %s", c, el.Error),
-					Server: url,
-				})
-			}
+			b.e.Error(ActionError{
+				Action: a,
+				Msg:    fmt.Sprintf("error %d: %s", c, el.Error),
+				Server: url,
+			})
 		default:
 			// No idea.
-			fmt.Printf("unexpected status: %d. Ignoring document.\n", c)
+			b.e.Error(fmt.Errorf("unwelcome response %d: %s", c, el.Error))
 		}
 	}
 	return nil
