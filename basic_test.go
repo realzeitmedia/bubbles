@@ -11,10 +11,6 @@ func init() {
 	log.SetOutput(ioutil.Discard)
 }
 
-type Xount struct {
-	X int
-}
-
 func TestIndex(t *testing.T) {
 	es := newMockES(t, func() string {
 		return `{"took":7,"items":[{"create":{"_index":"test","_type":"type1","_id":"1","_version":1}}]}`
