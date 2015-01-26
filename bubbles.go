@@ -49,6 +49,7 @@ type Bubbles struct {
 	connCount        int
 	flushTimeout     time.Duration
 	serverTimeout    time.Duration
+	c                Counter
 	e                Errer
 }
 
@@ -89,6 +90,13 @@ func OptMaxDocs(n int) Opt {
 	}
 }
 
+// OptCounter is an option to New() to specify something that counts documents.
+func OptCounter(c Counter) Opt {
+	return func(b *Bubbles) {
+		b.c = c
+	}
+}
+
 // OptErrer is an option to New() to specify an error handler. The default
 // handler uses the log module.
 func OptErrer(e Errer) Opt {
@@ -107,6 +115,7 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 		connCount:        DefaultConnCount,
 		flushTimeout:     DefaultFlushTimeout,
 		serverTimeout:    DefaultServerTimeout,
+		c:                DefaultCounter{},
 		e:                DefaultErrer{},
 	}
 	for _, o := range opts {
@@ -181,6 +190,7 @@ func client(b *Bubbles, addr string) {
 			case <-b.quit:
 				return
 			case <-time.After(wait):
+				b.c.Timeout()
 				wait *= 2
 				if wait >= serverErrorWaitMax {
 					wait = serverErrorWaitMax
@@ -231,11 +241,12 @@ gather:
 		}
 	}
 
-	res, err := postActions(cl, url, actions)
+	res, err := postActions(b.c, cl, url, actions)
 	if err != nil {
 		// A server error. Retry these actions later.
 		b.e.Error(err)
 		for _, a := range actions {
+			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
 		return true
@@ -252,6 +263,7 @@ gather:
 	if len(actions) != len(res.Items) {
 		b.e.Error(errInvalidResponse)
 		for _, a := range actions {
+			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
 		return true
@@ -263,6 +275,7 @@ gather:
 		if !ok {
 			// Unexpected reply from ElasticSearch.
 			b.e.Error(errInvalidResponse)
+			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 			continue
 		}
@@ -281,6 +294,7 @@ gather:
 				Msg:        fmt.Sprintf("transient error %d: %s", c, el.Error),
 				Server:     url,
 			})
+			b.c.Retry(RetryTransient, a.Type, len(a.Document))
 			b.retryQ <- a
 		case c >= 400 && c < 500:
 			// Some error. Nothing we can do with it.
@@ -311,11 +325,13 @@ type bulkRes struct {
 	} `json:"items"`
 }
 
-func postActions(cl http.Client, url string, actions []Action) (*bulkRes, error) {
+func postActions(c Counter, cl http.Client, url string, actions []Action) (*bulkRes, error) {
 	buf := bytes.Buffer{}
 	for _, a := range actions {
+		c.Send(a.Type, len(a.Document))
 		buf.Write(a.Buf())
 	}
+	c.SendTotal(buf.Len())
 
 	// This doesn't Chunk.
 	resp, err := cl.Post(url, "application/json", &buf)
