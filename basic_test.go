@@ -11,13 +11,18 @@ func init() {
 	log.SetOutput(ioutil.Discard)
 }
 
+type Xount struct {
+	X int
+}
+
 func TestIndex(t *testing.T) {
 	es := newMockES(t, func() string {
 		return `{"took":7,"items":[{"create":{"_index":"test","_type":"type1","_id":"1","_version":1}}]}`
 	})
 	defer es.Stop()
 
-	b := New([]string{es.Addr()}, OptConnCount(2), OptFlush(10*time.Millisecond))
+	c := &Count{}
+	b := New([]string{es.Addr()}, OptConnCount(2), OptFlush(10*time.Millisecond), OptCounter(c))
 
 	ins := Action{
 		Type: Index,
@@ -35,11 +40,15 @@ func TestIndex(t *testing.T) {
 	if have, want := len(pending), 0; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
 	}
+	if have, want := *c, (Count{Retries: 0, Sends: 1, SendTotals: 1, Timeouts: 0}); have != want {
+		t.Fatalf("counts: have %v, want %v", have, want)
+	}
 }
 
 func TestIndexNoES(t *testing.T) {
 	// Index without an ES
-	b := New([]string{"localhost:4321"}, OptConnCount(2), OptFlush(10*time.Millisecond))
+	c := &Count{}
+	b := New([]string{"localhost:4321"}, OptConnCount(2), OptFlush(10*time.Millisecond), OptCounter(c))
 
 	ins := Action{
 		Type: Index,
@@ -59,6 +68,9 @@ func TestIndexNoES(t *testing.T) {
 	}
 	if pending[0] != ins {
 		t.Errorf("Wrong pending object returned")
+	}
+	if have, want := c.Retries, 1; have < want {
+		t.Fatalf("retries: have %v, want at least %v", have, want)
 	}
 }
 
@@ -87,10 +99,12 @@ func TestIndexErr(t *testing.T) {
 	defer es.Stop()
 
 	errs := ErrorChan(make(chan ActionError))
+	c := &Count{}
 	b := New([]string{es.Addr()},
 		OptConnCount(2),
 		OptFlush(10*time.Millisecond),
 		OptErrer(errs),
+		OptCounter(c),
 	)
 
 	ins1 := Action{
@@ -126,6 +140,9 @@ func TestIndexErr(t *testing.T) {
 	pending := b.Stop()
 	if have, want := len(pending), 0; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
+	}
+	if have, want := *c, (Count{Retries: 0, Sends: 2, SendTotals: 1, Timeouts: 0}); have != want {
+		t.Fatalf("counts: have %v, want %v", have, want)
 	}
 }
 
