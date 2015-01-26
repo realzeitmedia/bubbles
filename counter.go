@@ -48,27 +48,33 @@ func (DefaultCounter) Timeout() {
 
 var _ Counter = DefaultCounter{}
 
+// Val counts occurrences and totals.
+type Val struct{ C, T int }
+
 // Count implements Counter, just counting to exported fields.
 type Count struct {
-	Retries    int
-	Sends      int
-	SendTotals int
+	Retries    Val
+	Sends      Val
+	SendTotals Val
 	Timeouts   int
 }
 
 // Retry increments c.Retries.
-func (c *Count) Retry(RetryType, ActionType, int) {
-	c.Retries++
+func (c *Count) Retry(_ RetryType, _ ActionType, l int) {
+	c.Retries.C++
+	c.Retries.T += l
 }
 
 // Send increments c.Sends.
-func (c *Count) Send(ActionType, int) {
-	c.Sends++
+func (c *Count) Send(_ ActionType, l int) {
+	c.Sends.C++
+	c.Sends.T += l
 }
 
 // SendTotal increments c.SendTotals.
-func (c *Count) SendTotal(int) {
-	c.SendTotals++
+func (c *Count) SendTotal(l int) {
+	c.SendTotals.C++
+	c.SendTotals.T += l
 }
 
 // Timeout increments c.Timeouts.
