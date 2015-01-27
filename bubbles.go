@@ -126,6 +126,7 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 	b.retryQ = make(chan Action, len(addrs)*b.connCount*b.maxDocumentCount)
 
 	// read from q and write full blocks of actions to b.blocks
+	b.wg.Add(1)
 	go buildBlocks(&b)
 
 	// Start a go routine per connection per host
@@ -228,6 +229,7 @@ loop:
 			b.retryQ <- a
 		}
 	}
+	b.wg.Done()
 }
 
 // client talks to ElasticSearch. This runs in a go routine in a loop and deals
