@@ -43,6 +43,7 @@ var (
 type Bubbles struct {
 	q                chan Action
 	retryQ           chan Action
+	blocks           chan []Action
 	quit             chan struct{}
 	wg               sync.WaitGroup
 	maxDocumentCount int
@@ -110,6 +111,7 @@ func OptErrer(e Errer) Opt {
 func New(addrs []string, opts ...Opt) *Bubbles {
 	b := Bubbles{
 		q:                make(chan Action),
+		blocks:           make(chan []Action),
 		quit:             make(chan struct{}),
 		maxDocumentCount: DefaultMaxDocumentsPerBatch,
 		connCount:        DefaultConnCount,
@@ -122,6 +124,9 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 		o(&b)
 	}
 	b.retryQ = make(chan Action, len(addrs)*b.connCount*b.maxDocumentCount)
+
+	// read from q and write full blocks of actions to b.blocks
+	go buildBlocks(&b)
 
 	// Start a go routine per connection per host
 	for _, a := range addrs {
@@ -165,6 +170,66 @@ func (b *Bubbles) Stop() []Action {
 	return pending
 }
 
+// buildBlocks reads from the retry Q and the incoming Q and pushes work to the
+// http clients.
+func buildBlocks(b *Bubbles) {
+	var block []Action
+loop:
+	for {
+		block = make([]Action, 0, b.maxDocumentCount)
+
+		// First use all retry actions.
+	retry:
+		for len(block) < b.maxDocumentCount {
+			select {
+			case <-b.quit:
+				break loop
+			case a := <-b.retryQ:
+				block = append(block, a)
+			default:
+				// no more retry actions queued
+				break retry
+			}
+		}
+
+		// Then wait for more incoming Actions, if we're still not full.
+		var t <-chan time.Time
+	gather:
+		for len(block) < b.maxDocumentCount {
+			if t == nil && len(block) > 0 {
+				// Set timeout on the first element we read
+				t = time.After(b.flushTimeout)
+			}
+			select {
+			case <-b.quit:
+				break loop
+			case <-t:
+				// this case is not enabled until we've got an action
+				break gather
+			case a := <-b.retryQ:
+				block = append(block, a)
+			case a := <-b.q:
+				block = append(block, a)
+			}
+		}
+
+		// Give the block to an HTTP client.
+		select {
+		case <-b.quit:
+			break loop
+		case b.blocks <- block:
+			block = nil
+		}
+	}
+
+	// Put unhandled elements back on shutdown.
+	if block != nil {
+		for _, a := range block {
+			b.retryQ <- a
+		}
+	}
+}
+
 // client talks to ElasticSearch. This runs in a go routine in a loop and deals
 // with a single ElasticSearch address.
 func client(b *Bubbles, addr string) {
@@ -182,70 +247,36 @@ func client(b *Bubbles, addr string) {
 		select {
 		case <-b.quit:
 			return
-		default:
-		}
-		if runBatch(b, cl, url) {
-			// Some error, back off.
-			select {
-			case <-b.quit:
-				return
-			case <-time.After(wait):
-				b.c.Timeout()
-				wait *= 2
-				if wait >= serverErrorWaitMax {
-					wait = serverErrorWaitMax
+		case block := <-b.blocks:
+			if runBlock(b, cl, url, block) {
+				// Some error, back off.
+				select {
+				case <-b.quit:
+					return
+				case <-time.After(wait):
+					b.c.Timeout()
+					wait *= 2
+					if wait >= serverErrorWaitMax {
+						wait = serverErrorWaitMax
+					}
 				}
+				continue
 			}
-			continue
+			wait = serverErrorWait
 		}
-		wait = serverErrorWait
 	}
 }
 
-// runBatch gathers and deals with a batch of actions. It returns
-// whether there was an error.
-func runBatch(b *Bubbles, cl http.Client, url string) bool {
-	actions := make([]Action, 0, b.maxDocumentCount)
-	// First use all retry actions.
-retry:
-	for len(actions) < b.maxDocumentCount {
-		select {
-		case a := <-b.retryQ:
-			actions = append(actions, a)
-		default:
-			// no more retry actions queued
-			break retry
-		}
-	}
+// runBlock gathers and deals with a batch of actions. It returns
+// whether there was an error. On case of error it'll put all retryable Actions
+// in the retryQ.
+func runBlock(b *Bubbles, cl http.Client, url string, block []Action) bool {
 
-	var t <-chan time.Time
-gather:
-	for len(actions) < b.maxDocumentCount {
-		if t == nil && len(actions) > 0 {
-			// Set timeout on the first element we read
-			t = time.After(b.flushTimeout)
-		}
-		select {
-		case <-b.quit:
-			for _, a := range actions {
-				b.retryQ <- a
-			}
-			return false
-		case <-t:
-			// this case is not enabled until we've got an action
-			break gather
-		case a := <-b.retryQ:
-			actions = append(actions, a)
-		case a := <-b.q:
-			actions = append(actions, a)
-		}
-	}
-
-	res, err := postActions(b.c, cl, url, actions)
+	res, err := postActions(b.c, cl, url, block)
 	if err != nil {
 		// A server error. Retry these actions later.
 		b.e.Error(err)
-		for _, a := range actions {
+		for _, a := range block {
 			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
@@ -260,9 +291,9 @@ gather:
 	}
 
 	// Invalid response from ElasticSearch.
-	if len(actions) != len(res.Items) {
+	if len(block) != len(res.Items) {
 		b.e.Error(errInvalidResponse)
-		for _, a := range actions {
+		for _, a := range block {
 			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
@@ -270,7 +301,7 @@ gather:
 	}
 	// Figure out which actions have errors.
 	for i, e := range res.Items {
-		a := actions[i]
+		a := block[i]
 		el, ok := e[string(a.Type)]
 		if !ok {
 			// Unexpected reply from ElasticSearch.
