@@ -123,7 +123,8 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 	for _, o := range opts {
 		o(&b)
 	}
-	b.retryQ = make(chan Action, len(addrs)*b.connCount*b.maxDocumentCount)
+	// +1 for our buildBlocks goroutine
+	b.retryQ = make(chan Action, (1+len(addrs)*b.connCount)*b.maxDocumentCount)
 
 	// read from q and write full blocks of actions to b.blocks
 	b.wg.Add(1)
