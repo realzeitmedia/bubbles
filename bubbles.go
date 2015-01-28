@@ -177,38 +177,53 @@ func client(b *Bubbles, addr string) {
 		},
 	}
 
-	wait := serverErrorWait
+	wait := 0 * time.Second
+	batchSize := b.maxDocumentCount
 	for {
 		select {
 		case <-b.quit:
 			return
-		default:
+		case <-time.After(wait):
 		}
-		if runBatch(b, cl, url) {
-			// Some error, back off.
-			select {
-			case <-b.quit:
-				return
-			case <-time.After(wait):
-				b.c.Timeout()
-				wait *= 2
-				if wait >= serverErrorWaitMax {
-					wait = serverErrorWaitMax
-				}
-			}
+		switch runBatch(b, cl, url, batchSize) {
+		case noTrouble:
+			wait = 0 * time.Second
+			batchSize = b.maxDocumentCount
 			continue
+		case littleTrouble:
+		case bigTrouble:
+			batchSize /= 2
+			if batchSize < 1 {
+				batchSize = 1
+			}
 		}
-		wait = serverErrorWait
+		if wait == 0 {
+			wait = serverErrorWait
+		} else {
+			wait *= 2
+			if wait >= serverErrorWaitMax {
+				wait = serverErrorWaitMax
+			}
+		}
+		b.c.Timeout()
 	}
 }
 
+type trouble int
+
+const (
+	noTrouble trouble = iota
+	littleTrouble
+	bigTrouble
+)
+
 // runBatch gathers and deals with a batch of actions. It returns
-// whether there was an error.
-func runBatch(b *Bubbles, cl http.Client, url string) bool {
+// whether there was trouble.
+func runBatch(b *Bubbles, cl http.Client, url string, batchSize int) trouble {
 	actions := make([]Action, 0, b.maxDocumentCount)
 	// First use all retry actions.
 retry:
-	for len(actions) < b.maxDocumentCount {
+	for len(actions) < batchSize {
 		select {
 		case a := <-b.retryQ:
 			actions = append(actions, a)
@@ -220,7 +235,7 @@ retry:
 
 	var t <-chan time.Time
 gather:
-	for len(actions) < b.maxDocumentCount {
+	for len(actions) < batchSize {
 		if t == nil && len(actions) > 0 {
 			// Set timeout on the first element we read
 			t = time.After(b.flushTimeout)
@@ -230,7 +245,7 @@ gather:
 			for _, a := range actions {
 				b.retryQ <- a
 			}
-			return false
+			return noTrouble
 		case <-t:
 			// this case is not enabled until we've got an action
 			break gather
@@ -249,14 +264,14 @@ gather:
 			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
-		return true
+		return bigTrouble
 	}
 
 	// Server has accepted the request an sich, but there can be errors in the
 	// individual actions.
 	if !res.Errors {
 		// Simple case, no errors present.
-		return false
+		return noTrouble
 	}
 
 	// Invalid response from ElasticSearch.
@@ -266,7 +281,7 @@ gather:
 			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
-		return true
+		return bigTrouble
 	}
 	// Figure out which actions have errors.
 	for i, e := range res.Items {
@@ -309,7 +324,7 @@ gather:
 			b.e.Error(fmt.Errorf("unwelcome response %d: %s", c, el.Error))
 		}
 	}
-	return true
+	return littleTrouble
 }
 
 type bulkRes struct {
