@@ -123,13 +123,27 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 	}
 	b.retryQ = make(chan Action, len(addrs)*b.connCount*b.maxDocumentCount)
 
+	cl := &http.Client{
+		Timeout: b.serverTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return errors.New("no redirect")
+		},
+		Transport: &http.Transport{
+			Dial: (&net.Dialer{
+				Timeout:   b.serverTimeout,
+				KeepAlive: 30 * time.Second,
+			}).Dial,
+			MaxIdleConnsPerHost: b.connCount,
+			DisableCompression:  false,
+		},
+	}
 	// Start a go routine per connection per host
 	for _, a := range addrs {
 		addr := withPort(a, defaultElasticSearchPort)
 		for i := 0; i < b.connCount; i++ {
 			b.wg.Add(1)
 			go func(a string) {
-				client(&b, a)
+				client(&b, cl, a)
 				b.wg.Done()
 			}(addr)
 		}
@@ -167,15 +181,8 @@ func (b *Bubbles) Stop() []Action {
 
 // client talks to ElasticSearch. This runs in a go routine in a loop and deals
 // with a single ElasticSearch address.
-func client(b *Bubbles, addr string) {
+func client(b *Bubbles, cl *http.Client, addr string) {
 	url := fmt.Sprintf("http://%s/_bulk", addr)
-
-	cl := http.Client{
-		Timeout: b.serverTimeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return errors.New("no redirect")
-		},
-	}
 
 	wait := 0 * time.Second
 	batchSize := b.maxDocumentCount
@@ -219,7 +226,7 @@ const (
 
 // runBatch gathers and deals with a batch of actions. It returns
 // whether there was trouble.
-func runBatch(b *Bubbles, cl http.Client, url string, batchSize int) trouble {
+func runBatch(b *Bubbles, cl *http.Client, url string, batchSize int) trouble {
 	actions := make([]Action, 0, b.maxDocumentCount)
 	// First use all retry actions.
 retry:
@@ -340,7 +347,7 @@ type bulkRes struct {
 	} `json:"items"`
 }
 
-func postActions(c Counter, cl http.Client, url string, actions []Action) (*bulkRes, error) {
+func postActions(c Counter, cl *http.Client, url string, actions []Action) (*bulkRes, error) {
 	buf := bytes.Buffer{}
 	for _, a := range actions {
 		c.Send(a.Type, len(a.Document))
