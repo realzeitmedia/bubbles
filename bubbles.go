@@ -192,17 +192,15 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 			return
 		case <-time.After(wait):
 		}
-		switch runBatch(b, cl, url, batchSize) {
-		case noTrouble:
-			wait = 0 * time.Second
-			batchSize = b.maxDocumentCount
-			continue
-		case littleTrouble:
-		case bigTrouble:
+		if runBatch(b, cl, url, batchSize) {
 			batchSize /= 2
 			if batchSize < 1 {
 				batchSize = 1
 			}
+		} else {
+			wait = 0 * time.Second
+			batchSize = b.maxDocumentCount
+			continue
 		}
 		if wait == 0 {
 			wait = serverErrorWait
@@ -216,17 +214,9 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 	}
 }
 
-type trouble int
-
-const (
-	noTrouble trouble = iota
-	littleTrouble
-	bigTrouble
-)
-
 // runBatch gathers and deals with a batch of actions. It returns
 // whether there was trouble.
-func runBatch(b *Bubbles, cl *http.Client, url string, batchSize int) trouble {
+func runBatch(b *Bubbles, cl *http.Client, url string, batchSize int) bool {
 	actions := make([]Action, 0, b.maxDocumentCount)
 	// First use all retry actions.
 retry:
@@ -252,7 +242,7 @@ gather:
 			for _, a := range actions {
 				b.retryQ <- a
 			}
-			return noTrouble
+			return false
 		case <-t:
 			// this case is not enabled until we've got an action
 			break gather
@@ -271,14 +261,14 @@ gather:
 			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
-		return bigTrouble
+		return true
 	}
 
 	// Server has accepted the request an sich, but there can be errors in the
 	// individual actions.
 	if !res.Errors {
 		// Simple case, no errors present.
-		return noTrouble
+		return false
 	}
 
 	// Invalid response from ElasticSearch.
@@ -288,7 +278,7 @@ gather:
 			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
-		return bigTrouble
+		return true
 	}
 	// Figure out which actions have errors.
 	for i, e := range res.Items {
@@ -331,7 +321,7 @@ gather:
 			b.e.Error(fmt.Errorf("unwelcome response %d: %s", c, el.Error))
 		}
 	}
-	return littleTrouble
+	return true
 }
 
 type bulkRes struct {
