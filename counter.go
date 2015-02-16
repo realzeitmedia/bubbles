@@ -1,5 +1,9 @@
 package bubbles
 
+import (
+	"time"
+)
+
 // RetryType distinguishes between reasons for retrying an action.
 type RetryType int
 
@@ -25,6 +29,9 @@ type Counter interface {
 
 	// Timeout counts that a batch post timed out.
 	Timeout()
+
+	// BatchTime records the length of a batch request.
+	BatchTime(t time.Duration)
 }
 
 // DefaultCounter implements Counter, not counting anything.
@@ -44,6 +51,10 @@ func (DefaultCounter) SendTotal(int) {
 
 // Timeout is a default trivial implementation.
 func (DefaultCounter) Timeout() {
+}
+
+// BatchTime is a default trivial implementation.
+func (DefaultCounter) BatchTime(time.Duration) {
 }
 
 var _ Counter = DefaultCounter{}
@@ -80,6 +91,10 @@ func (c *Count) SendTotal(l int) {
 // Timeout increments c.Timeouts.
 func (c *Count) Timeout() {
 	c.Timeouts++
+}
+
+// BatchTime is a trivial implementation.
+func (c *Count) BatchTime(time.Duration) {
 }
 
 var _ Counter = &Count{}

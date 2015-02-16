@@ -256,6 +256,7 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 		} else {
 			backoff.dec()
 		}
+		b.c.BatchTime(batchTime)
 	}
 }
 
