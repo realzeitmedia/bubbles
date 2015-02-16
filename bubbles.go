@@ -252,11 +252,10 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 		trouble, batchTime := runBatch(b, cl, url, backoff.size())
 		if trouble || batchTime > backoffTime {
 			backoff.inc()
+			b.c.Timeout()
 		} else {
 			backoff.dec()
-			continue
 		}
-		b.c.Timeout()
 	}
 }
 
