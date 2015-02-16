@@ -219,16 +219,18 @@ func (b *backoff) size() int {
 	return s
 }
 
-// inc increases the backoff level
+// inc increases the backoff level.
 func (b *backoff) inc() {
 	if b.level < b.max {
 		b.level++
 	}
 }
 
-// reset resets the backoff level
-func (b *backoff) reset() {
-	b.level = 0
+// dec decreases the backoff level.
+func (b *backoff) dec() {
+	if b.level > 0 {
+		b.level--
+	}
 }
 
 // client talks to ElasticSearch. This runs in a go routine in a loop and deals
@@ -246,7 +248,7 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 		if runBatch(b, cl, url, backoff.size()) {
 			backoff.inc()
 		} else {
-			backoff.reset()
+			backoff.dec()
 			continue
 		}
 		b.c.Timeout()
