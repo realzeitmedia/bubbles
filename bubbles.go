@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"net"
 	"net/http"
 	"sync"
@@ -179,36 +180,74 @@ func (b *Bubbles) Stop() []Action {
 	return pending
 }
 
+type backoff struct {
+	level        uint8
+	max          uint8
+	maxBatchSize int
+}
+
+func newBackoff(maxBatchSize int) *backoff {
+	b := &backoff{
+		maxBatchSize: maxBatchSize,
+	}
+	// Max out when both components do.
+	for ; (b.wait() < serverErrorWaitMax || b.size() > 1) && b.level < math.MaxUint8; b.level++ {
+	}
+	b.max = b.level
+	b.level = 0
+	return b
+}
+
+// wait calculates the delay based on the current backoff level.
+func (b *backoff) wait() time.Duration {
+	if b.level == 0 {
+		return 0 * time.Second
+	}
+	w := (1 << (b.level - 1)) * serverErrorWait
+	if w >= serverErrorWaitMax {
+		return serverErrorWaitMax
+	}
+	return w
+}
+
+// batchSize calculates the batchsize based on the current backoff level.
+func (b *backoff) size() int {
+	s := b.maxBatchSize / (1 << b.level)
+	if s <= 1 {
+		return 1
+	}
+	return s
+}
+
+// inc increases the backoff level
+func (b *backoff) inc() {
+	if b.level < b.max {
+		b.level++
+	}
+}
+
+// reset resets the backoff level
+func (b *backoff) reset() {
+	b.level = 0
+}
+
 // client talks to ElasticSearch. This runs in a go routine in a loop and deals
 // with a single ElasticSearch address.
 func client(b *Bubbles, cl *http.Client, addr string) {
 	url := fmt.Sprintf("http://%s/_bulk", addr)
 
-	wait := 0 * time.Second
-	batchSize := b.maxDocumentCount
+	backoff := newBackoff(b.maxDocumentCount)
 	for {
 		select {
 		case <-b.quit:
 			return
-		case <-time.After(wait):
+		case <-time.After(backoff.wait()):
 		}
-		if runBatch(b, cl, url, batchSize) {
-			batchSize /= 2
-			if batchSize < 1 {
-				batchSize = 1
-			}
+		if runBatch(b, cl, url, backoff.size()) {
+			backoff.inc()
 		} else {
-			wait = 0 * time.Second
-			batchSize = b.maxDocumentCount
+			backoff.reset()
 			continue
-		}
-		if wait == 0 {
-			wait = serverErrorWait
-		} else {
-			wait *= 2
-			if wait >= serverErrorWaitMax {
-				wait = serverErrorWaitMax
-			}
 		}
 		b.c.Timeout()
 	}
