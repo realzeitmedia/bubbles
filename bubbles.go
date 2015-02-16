@@ -29,6 +29,9 @@ const (
 	// DefaultConnCount is the number of connections per hosts.
 	DefaultConnCount = 2
 
+	// backoffTimeoutRatio determines when we start backing off.
+	backoffTimeoutRatio = 2
+
 	serverErrorWait    = 500 * time.Millisecond
 	serverErrorWaitMax = 16 * time.Second
 
@@ -239,13 +242,15 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 	url := fmt.Sprintf("http://%s/_bulk", addr)
 
 	backoff := newBackoff(b.maxDocumentCount)
+	backoffTime := b.serverTimeout / backoffTimeoutRatio
 	for {
 		select {
 		case <-b.quit:
 			return
 		case <-time.After(backoff.wait()):
 		}
-		if runBatch(b, cl, url, backoff.size()) {
+		trouble, batchTime := runBatch(b, cl, url, backoff.size())
+		if trouble || batchTime > backoffTime {
 			backoff.inc()
 		} else {
 			backoff.dec()
@@ -256,8 +261,8 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 }
 
 // runBatch gathers and deals with a batch of actions. It returns
-// whether there was trouble.
-func runBatch(b *Bubbles, cl *http.Client, url string, batchSize int) bool {
+// whether there was trouble, and how long the actual request took.
+func runBatch(b *Bubbles, cl *http.Client, url string, batchSize int) (bool, time.Duration) {
 	actions := make([]Action, 0, b.maxDocumentCount)
 	// First use all retry actions.
 retry:
@@ -283,7 +288,7 @@ gather:
 			for _, a := range actions {
 				b.retryQ <- a
 			}
-			return false
+			return false, 0
 		case <-t:
 			// this case is not enabled until we've got an action
 			break gather
@@ -294,7 +299,9 @@ gather:
 		}
 	}
 
+	t0 := time.Now()
 	res, err := postActions(b.c, cl, url, actions)
+	dt := time.Since(t0)
 	if err != nil {
 		// A server error. Retry these actions later.
 		b.e.Error(err)
@@ -302,14 +309,14 @@ gather:
 			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
-		return true
+		return true, dt
 	}
 
 	// Server has accepted the request an sich, but there can be errors in the
 	// individual actions.
 	if !res.Errors {
 		// Simple case, no errors present.
-		return false
+		return false, dt
 	}
 
 	// Invalid response from ElasticSearch.
@@ -319,7 +326,7 @@ gather:
 			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
-		return true
+		return true, dt
 	}
 	// Figure out which actions have errors.
 	for i, e := range res.Items {
@@ -362,7 +369,7 @@ gather:
 			b.e.Error(fmt.Errorf("unwelcome response %d: %s", c, el.Error))
 		}
 	}
-	return true
+	return true, dt
 }
 
 type bulkRes struct {
