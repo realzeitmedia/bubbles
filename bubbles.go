@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"math"
 	"net"
 	"net/http"
 	"sync"
@@ -199,7 +198,7 @@ func newBackoff(maxBatchSize int) *backoff {
 		maxBatchSize: maxBatchSize,
 	}
 	// Max out when both components do.
-	for ; (b.wait() < serverErrorWaitMax || b.size() > 1) && b.level < math.MaxUint8; b.level++ {
+	for ; (b.wait() < serverErrorWaitMax || b.size() > 1) && b.level < 32; b.level++ {
 	}
 	b.max = b.level
 	b.level = 0
