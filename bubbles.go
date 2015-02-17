@@ -306,6 +306,7 @@ gather:
 			for _, a := range actions {
 				b.retryQ <- a
 			}
+			b.c.Actions(0, len(actions), 0)
 			return false, 0, 0
 		case <-t:
 			// this case is not enabled until we've got an action
@@ -324,9 +325,9 @@ gather:
 		// A server error. Retry these actions later.
 		b.e.Error(err)
 		for _, a := range actions {
-			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
+		b.c.Actions(0, len(actions), 0)
 		return true, dt, 0
 	}
 
@@ -334,6 +335,7 @@ gather:
 	// individual actions.
 	if !res.Errors {
 		// Simple case, no errors present.
+		b.c.Actions(len(actions), 0, 0)
 		return false, dt, len(actions)
 	}
 
@@ -341,22 +343,24 @@ gather:
 	if len(actions) != len(res.Items) {
 		b.e.Error(errInvalidResponse)
 		for _, a := range actions {
-			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
+		b.c.Actions(0, len(actions), 0)
 		return true, dt, 0
 	}
 	// Figure out which actions have errors.
-	errors := 0
+	var (
+		retries = 0
+		errors  = 0
+	)
 	for i, e := range res.Items {
 		a := actions[i]
 		el, ok := e[string(a.Type)]
 		if !ok {
 			// Unexpected reply from ElasticSearch.
 			b.e.Error(errInvalidResponse)
-			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
-			errors++
+			retries++
 			continue
 		}
 
@@ -374,9 +378,8 @@ gather:
 				Msg:        fmt.Sprintf("transient error %d: %s", c, el.Error),
 				Server:     url,
 			})
-			b.c.Retry(RetryTransient, a.Type, len(a.Document))
 			b.retryQ <- a
-			errors++
+			retries++
 		case c >= 400 && c < 500:
 			// Some error. Nothing we can do with it.
 			b.e.Error(ActionError{
@@ -392,7 +395,9 @@ gather:
 			errors++
 		}
 	}
-	return true, dt, len(actions) - errors
+	sent := len(actions) - errors - retries
+	b.c.Actions(sent, retries, errors)
+	return true, dt, sent
 }
 
 type bulkRes struct {
@@ -424,7 +429,6 @@ func interruptibleDo(cl *http.Client, req *http.Request, interrupt <-chan struct
 func postActions(c Counter, cl *http.Client, url string, actions []Action, quit <-chan struct{}) (*bulkRes, error) {
 	buf := bytes.Buffer{}
 	for _, a := range actions {
-		c.Send(a.Type, len(a.Document))
 		buf.Write(a.Buf())
 	}
 	c.SendTotal(buf.Len())

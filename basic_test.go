@@ -37,8 +37,8 @@ func TestIndex(t *testing.T) {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
 	}
 	if have, want := *c, (count{
-		Retries:    val{0, 0},
-		Sends:      val{1, len(ins.Document)},
+		Retries:    0,
+		Sends:      1,
 		SendTotals: val{1, len(ins.Buf())},
 		Troubles:   0,
 	}); have != want {
@@ -70,7 +70,7 @@ func TestIndexNoES(t *testing.T) {
 	if pending[0] != ins {
 		t.Errorf("Wrong pending object returned")
 	}
-	if have, want := c.Retries.C, 1; have < want {
+	if have, want := c.Retries, 1; have < want {
 		t.Fatalf("retries: have %v, want at least %v", have, want)
 	}
 }
@@ -143,8 +143,9 @@ func TestIndexErr(t *testing.T) {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
 	}
 	if have, want := *c, (count{
-		Retries:    val{0, 0},
-		Sends:      val{2, len(ins1.Document) + len(ins2.Document)},
+		Sends:      1,
+		Retries:    0,
+		Errors:     1,
 		SendTotals: val{1, len(ins1.Buf()) + len(ins2.Buf())},
 		Troubles:   1,
 	}); have != want {
