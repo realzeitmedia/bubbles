@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/realzeitmedia/bubbles/log"
+	"github.com/realzeitmedia/bubbles/loges"
 )
 
 const (
@@ -60,8 +60,8 @@ type Bubbles struct {
 	connCount        int
 	flushTimeout     time.Duration
 	serverTimeout    time.Duration
-	c                log.Counter
-	e                log.Errer
+	c                loges.Counter
+	e                loges.Errer
 }
 
 // Opt is any option to New().
@@ -101,7 +101,7 @@ func OptMaxDocs(n int) Opt {
 }
 
 // OptCounter is an option to New() to specify something that counts documents.
-func OptCounter(c log.Counter) Opt {
+func OptCounter(c loges.Counter) Opt {
 	return func(b *Bubbles) {
 		b.c = c
 	}
@@ -109,7 +109,7 @@ func OptCounter(c log.Counter) Opt {
 
 // OptErrer is an option to New() to specify an error handler. The default
 // handler uses the log module.
-func OptErrer(e log.Errer) Opt {
+func OptErrer(e loges.Errer) Opt {
 	return func(b *Bubbles) {
 		b.e = e
 	}
@@ -125,8 +125,8 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 		connCount:        DefaultConnCount,
 		flushTimeout:     DefaultFlushTimeout,
 		serverTimeout:    DefaultServerTimeout,
-		c:                log.DefaultCounter{},
-		e:                log.DefaultErrer{},
+		c:                loges.DefaultCounter{},
+		e:                loges.DefaultErrer{},
 	}
 	for _, o := range opts {
 		o(&b)
@@ -428,7 +428,7 @@ func interruptibleDo(cl *http.Client, req *http.Request, interrupt <-chan struct
 	return cl.Do(req)
 }
 
-func postActions(c log.Counter, cl *http.Client, url string, actions []Action, quit <-chan struct{}) (*bulkRes, error) {
+func postActions(c loges.Counter, cl *http.Client, url string, actions []Action, quit <-chan struct{}) (*bulkRes, error) {
 	buf := bytes.Buffer{}
 	for _, a := range actions {
 		buf.Write(a.Buf())

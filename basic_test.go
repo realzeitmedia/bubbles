@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	blog "github.com/realzeitmedia/bubbles/log"
+	"github.com/realzeitmedia/bubbles/loges"
 )
 
 func init() {
@@ -231,4 +231,4 @@ func (c *count) Trouble() {
 func (c *count) BatchTime(time.Duration) {
 }
 
-var _ blog.Counter = &count{}
+var _ loges.Counter = &count{}
