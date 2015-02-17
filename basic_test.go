@@ -40,7 +40,7 @@ func TestIndex(t *testing.T) {
 		Retries:    val{0, 0},
 		Sends:      val{1, len(ins.Document)},
 		SendTotals: val{1, len(ins.Buf())},
-		Timeouts:   0,
+		Troubles:   0,
 	}); have != want {
 		t.Fatalf("counts: have %v, want %v", have, want)
 	}
@@ -146,7 +146,7 @@ func TestIndexErr(t *testing.T) {
 		Retries:    val{0, 0},
 		Sends:      val{2, len(ins1.Document) + len(ins2.Document)},
 		SendTotals: val{1, len(ins1.Buf()) + len(ins2.Buf())},
-		Timeouts:   1,
+		Troubles:   1,
 	}); have != want {
 		t.Fatalf("counts: have %v, want %v", have, want)
 	}

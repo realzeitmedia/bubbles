@@ -27,8 +27,8 @@ type Counter interface {
 	// action metadata in contrast to Send.
 	SendTotal(l int)
 
-	// Timeout counts that a batch post timed out.
-	Timeout()
+	// Trouble counts that a batch post had problems.
+	Trouble()
 
 	// BatchTime records the length of a batch request.
 	BatchTime(t time.Duration)
@@ -49,8 +49,8 @@ func (DefaultCounter) Send(ActionType, int) {
 func (DefaultCounter) SendTotal(int) {
 }
 
-// Timeout is a default trivial implementation.
-func (DefaultCounter) Timeout() {
+// Trouble is a default trivial implementation.
+func (DefaultCounter) Trouble() {
 }
 
 // BatchTime is a default trivial implementation.
@@ -65,7 +65,7 @@ type count struct {
 	Retries    val
 	Sends      val
 	SendTotals val
-	Timeouts   int
+	Troubles   int
 }
 
 func (c *count) Retry(_ RetryType, _ ActionType, l int) {
@@ -83,8 +83,8 @@ func (c *count) SendTotal(l int) {
 	c.SendTotals.T += l
 }
 
-func (c *count) Timeout() {
-	c.Timeouts++
+func (c *count) Trouble() {
+	c.Troubles++
 }
 
 func (c *count) BatchTime(time.Duration) {
