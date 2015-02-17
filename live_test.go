@@ -145,7 +145,7 @@ func TestLiveMany(t *testing.T) {
 		},
 		Document: `{"field1": "value1"}`,
 	}
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	pending := b.Stop()
 	if have, want := len(pending), 0; have != want {
