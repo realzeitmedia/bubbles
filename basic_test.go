@@ -163,7 +163,7 @@ func TestShutdownTimeout(t *testing.T) {
 	b := New([]string{es.Addr()},
 		OptConnCount(1),
 		OptFlush(10*time.Millisecond),
-		OptServerTimeout(100*time.Millisecond),
+		OptServerTimeout(5*time.Second),
 		OptMaxDocs(5),
 	)
 
