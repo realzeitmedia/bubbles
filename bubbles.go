@@ -300,7 +300,7 @@ gather:
 	}
 
 	t0 := time.Now()
-	res, err := postActions(b.c, cl, url, actions)
+	res, err := postActions(b.c, cl, url, actions, b.quit)
 	dt := time.Since(t0)
 	if err != nil {
 		// A server error. Retry these actions later.
@@ -385,7 +385,20 @@ type bulkRes struct {
 	} `json:"items"`
 }
 
-func postActions(c Counter, cl *http.Client, url string, actions []Action) (*bulkRes, error) {
+func interruptibleDo(cl *http.Client, req *http.Request, interrupt <-chan struct{}) (*http.Response, error) {
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-interrupt:
+			cl.Transport.(*http.Transport).CancelRequest(req)
+		case <-done:
+		}
+	}()
+	defer close(done)
+	return cl.Do(req)
+}
+
+func postActions(c Counter, cl *http.Client, url string, actions []Action, quit <-chan struct{}) (*bulkRes, error) {
 	buf := bytes.Buffer{}
 	for _, a := range actions {
 		c.Send(a.Type, len(a.Document))
@@ -394,7 +407,13 @@ func postActions(c Counter, cl *http.Client, url string, actions []Action) (*bul
 	c.SendTotal(buf.Len())
 
 	// This doesn't Chunk.
-	resp, err := cl.Post(url, "application/json", &buf)
+	req, err := http.NewRequest("POST", url, &buf)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := interruptibleDo(cl, req, quit)
 	if err != nil {
 		return nil, err
 	}
