@@ -33,8 +33,9 @@ const (
 	// DefaultConnCount is the number of connections per hosts.
 	DefaultConnCount = 2
 
-	// backoffTimeoutRatio determines when we start backing off.
-	backoffTimeoutRatio = 6
+	// tuneTimeoutRatio determines when we start backing off to keep the request
+	// duration under control.
+	tuneTimeoutRatio = 6
 
 	serverErrorWait    = 50 * time.Millisecond
 	serverErrorWaitMax = 10 * time.Second
@@ -238,25 +239,38 @@ func (b *backoff) dec() {
 	}
 }
 
+func min(x, y int) int {
+	if x < y {
+		return x
+	}
+	return y
+}
+
 // client talks to ElasticSearch. This runs in a go routine in a loop and deals
 // with a single ElasticSearch address.
 func client(b *Bubbles, cl *http.Client, addr string) {
 	url := fmt.Sprintf("http://%s/_bulk", addr)
 
-	backoff := newBackoff(b.maxDocumentCount)
-	backoffTime := b.serverTimeout / backoffTimeoutRatio
+	backoffTrouble := newBackoff(b.maxDocumentCount)
+	backoffTune := newBackoff(b.maxDocumentCount)
+	tuneTimeout := b.serverTimeout / tuneTimeoutRatio
 	for {
 		select {
 		case <-b.quit:
 			return
-		case <-time.After(backoff.wait()):
+		case <-time.After(backoffTrouble.wait()):
 		}
-		trouble, batchTime := runBatch(b, cl, url, backoff.size())
-		if trouble || batchTime > backoffTime {
-			backoff.inc()
+		trouble, batchTime := runBatch(b, cl, url, min(backoffTrouble.size(), backoffTune.size()))
+		if trouble {
+			backoffTrouble.inc()
 			b.c.Trouble()
 		} else {
-			backoff.dec()
+			backoffTrouble.dec()
+		}
+		if batchTime > tuneTimeout {
+			backoffTune.inc()
+		} else if batchTime <= tuneTimeout / 2 {
+			backoffTune.dec()
 		}
 		b.c.BatchTime(batchTime)
 	}
