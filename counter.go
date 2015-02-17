@@ -4,17 +4,6 @@ import (
 	"time"
 )
 
-// RetryType distinguishes between reasons for retrying an action.
-type RetryType int
-
-const (
-	// RetryUnlikely is if the action is retried for reason that should not occur.
-	RetryUnlikely = iota
-
-	// RetryTransient is if the action is retried for a transient error, e.g. full queue.
-	RetryTransient
-)
-
 // Counter provides hooks to count documents going through bubbles.
 type Counter interface {
 	// Counts the numbers of individual actions that were sent
