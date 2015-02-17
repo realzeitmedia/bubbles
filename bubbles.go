@@ -165,8 +165,7 @@ func (b *Bubbles) Enqueue() chan<- Action {
 }
 
 // Stop shuts down all ElasticSearch clients. It'll return all Action entries
-// which were not yet processed, or were up for a retry. It can take
-// OptServerTimeout to complete.
+// which were not yet processed, or were up for a retry.
 func (b *Bubbles) Stop() []Action {
 	close(b.quit)
 	// There is no explicit timeout, we rely on b.serverTimeout to shut down
