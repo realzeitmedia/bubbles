@@ -32,7 +32,7 @@ func TestLiveIndex(t *testing.T) {
 	}
 
 	b.Enqueue() <- ins
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	pending := b.Stop()
 	if have, want := len(pending), 0; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
