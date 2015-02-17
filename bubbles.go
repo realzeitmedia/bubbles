@@ -260,7 +260,8 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 			return
 		case <-time.After(backoffTrouble.wait()):
 		}
-		trouble, batchTime := runBatch(b, cl, url, min(backoffTrouble.size(), backoffTune.size()))
+		tuneMax := backoffTune.size()
+		trouble, batchTime, size := runBatch(b, cl, url, min(backoffTrouble.size(), tuneMax))
 		if trouble {
 			backoffTrouble.inc()
 			b.c.Trouble()
@@ -269,7 +270,7 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 		}
 		if batchTime > tuneTimeout {
 			backoffTune.inc()
-		} else if batchTime <= tuneTimeout / 2 {
+		} else if batchTime <= tuneTimeout / 2 && size == tuneMax {
 			backoffTune.dec()
 		}
 		b.c.BatchTime(batchTime)
@@ -277,8 +278,9 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 }
 
 // runBatch gathers and deals with a batch of actions. It returns
-// whether there was trouble, and how long the actual request took.
-func runBatch(b *Bubbles, cl *http.Client, url string, batchSize int) (bool, time.Duration) {
+// whether there was trouble, how long the actual request took, and
+// how many items were sent in case of no trouble.
+func runBatch(b *Bubbles, cl *http.Client, url string, batchSize int) (bool, time.Duration, int) {
 	actions := make([]Action, 0, b.maxDocumentCount)
 	// First use all retry actions.
 retry:
@@ -304,7 +306,7 @@ gather:
 			for _, a := range actions {
 				b.retryQ <- a
 			}
-			return false, 0
+			return false, 0, 0
 		case <-t:
 			// this case is not enabled until we've got an action
 			break gather
@@ -325,14 +327,14 @@ gather:
 			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
-		return true, dt
+		return true, dt, 0
 	}
 
 	// Server has accepted the request an sich, but there can be errors in the
 	// individual actions.
 	if !res.Errors {
 		// Simple case, no errors present.
-		return false, dt
+		return false, dt, len(actions)
 	}
 
 	// Invalid response from ElasticSearch.
@@ -342,7 +344,7 @@ gather:
 			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
-		return true, dt
+		return true, dt, 0
 	}
 	// Figure out which actions have errors.
 	for i, e := range res.Items {
@@ -385,7 +387,7 @@ gather:
 			b.e.Error(fmt.Errorf("unwelcome response %d: %s", c, el.Error))
 		}
 	}
-	return true, dt
+	return true, dt, 0
 }
 
 type bulkRes struct {
