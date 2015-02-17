@@ -81,9 +81,8 @@ func OptFlush(d time.Duration) Opt {
 }
 
 // OptServerTimeout is an option to New() to specify the timeout of a single
-// batch POST to ElasticSearch. This value is also the maximum time Stop() will
-// take. All actions in a bulk which is timed out will be retried. The default
-// is DefaultServerTimeout.
+// batch POST to ElasticSearch. All actions in a bulk which is timed out will
+// be retried. The default is DefaultServerTimeout.
 func OptServerTimeout(d time.Duration) Opt {
 	return func(b *Bubbles) {
 		b.serverTimeout = d
