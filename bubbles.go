@@ -22,9 +22,8 @@ const (
 	// to send it to a server.
 	DefaultFlushTimeout = 10 * time.Second
 
-	// DefaultServerTimeout is the time we give ElasticSearch to respond. This
-	// is also the maximum time Stop() will take.
-	DefaultServerTimeout = 10 * time.Second
+	// DefaultServerTimeout is the time we give ElasticSearch to respond.
+	DefaultServerTimeout = 1 * time.Minute
 
 	// DefaultConnCount is the number of connections per hosts.
 	DefaultConnCount = 2
