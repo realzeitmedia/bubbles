@@ -1,3 +1,9 @@
+// Package bubbles is an Elasticsearch bulk insert client.
+//
+// It connects to an Elasticsearch cluster via the bulk API
+// (http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/docs-bulk.html).
+// Actions are batched into bulk requests. Actions which resulted
+// in an error are retried individually.
 package bubbles
 
 import (
