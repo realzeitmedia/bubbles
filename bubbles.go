@@ -261,7 +261,7 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 		case <-time.After(backoffTrouble.wait()):
 		}
 		tuneMax := backoffTune.size()
-		trouble, batchTime, size := runBatch(b, cl, url, min(backoffTrouble.size(), tuneMax))
+		trouble, batchTime, sent := runBatch(b, cl, url, min(backoffTrouble.size(), tuneMax))
 		if trouble {
 			backoffTrouble.inc()
 			b.c.Trouble()
@@ -270,7 +270,7 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 		}
 		if batchTime > tuneTimeout {
 			backoffTune.inc()
-		} else if batchTime <= tuneTimeout / 2 && size == tuneMax {
+		} else if batchTime <= tuneTimeout/2 && sent == tuneMax {
 			backoffTune.dec()
 		}
 		b.c.BatchTime(batchTime)
@@ -279,7 +279,7 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 
 // runBatch gathers and deals with a batch of actions. It returns
 // whether there was trouble, how long the actual request took, and
-// how many items were sent in case of no trouble.
+// how many items were sent successfully.
 func runBatch(b *Bubbles, cl *http.Client, url string, batchSize int) (bool, time.Duration, int) {
 	actions := make([]Action, 0, b.maxDocumentCount)
 	// First use all retry actions.
@@ -347,6 +347,7 @@ gather:
 		return true, dt, 0
 	}
 	// Figure out which actions have errors.
+	errors := 0
 	for i, e := range res.Items {
 		a := actions[i]
 		el, ok := e[string(a.Type)]
@@ -355,6 +356,7 @@ gather:
 			b.e.Error(errInvalidResponse)
 			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
+			errors++
 			continue
 		}
 
@@ -374,6 +376,7 @@ gather:
 			})
 			b.c.Retry(RetryTransient, a.Type, len(a.Document))
 			b.retryQ <- a
+			errors++
 		case c >= 400 && c < 500:
 			// Some error. Nothing we can do with it.
 			b.e.Error(ActionError{
@@ -382,12 +385,14 @@ gather:
 				Msg:        fmt.Sprintf("error %d: %s", c, el.Error),
 				Server:     url,
 			})
+			errors++
 		default:
 			// No idea.
 			b.e.Error(fmt.Errorf("unwelcome response %d: %s", c, el.Error))
+			errors++
 		}
 	}
-	return true, dt, 0
+	return true, dt, len(actions) - errors
 }
 
 type bulkRes struct {
