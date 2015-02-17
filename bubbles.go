@@ -35,10 +35,10 @@ const (
 	DefaultConnCount = 2
 
 	// backoffTimeoutRatio determines when we start backing off.
-	backoffTimeoutRatio = 2
+	backoffTimeoutRatio = 6
 
-	serverErrorWait    = 500 * time.Millisecond
-	serverErrorWaitMax = 16 * time.Second
+	serverErrorWait    = 50 * time.Millisecond
+	serverErrorWaitMax = 10 * time.Second
 
 	defaultElasticSearchPort = "9200"
 )
