@@ -17,7 +17,7 @@ func TestIndex(t *testing.T) {
 	})
 	defer es.Stop()
 
-	c := &Count{}
+	c := &count{}
 	b := New([]string{es.Addr()}, OptConnCount(2), OptFlush(10*time.Millisecond), OptCounter(c))
 
 	ins := Action{
@@ -36,10 +36,10 @@ func TestIndex(t *testing.T) {
 	if have, want := len(pending), 0; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
 	}
-	if have, want := *c, (Count{
-		Retries:    Val{0, 0},
-		Sends:      Val{1, len(ins.Document)},
-		SendTotals: Val{1, len(ins.Buf())},
+	if have, want := *c, (count{
+		Retries:    val{0, 0},
+		Sends:      val{1, len(ins.Document)},
+		SendTotals: val{1, len(ins.Buf())},
 		Timeouts:   0,
 	}); have != want {
 		t.Fatalf("counts: have %v, want %v", have, want)
@@ -48,7 +48,7 @@ func TestIndex(t *testing.T) {
 
 func TestIndexNoES(t *testing.T) {
 	// Index without an ES
-	c := &Count{}
+	c := &count{}
 	b := New([]string{"localhost:4321"}, OptConnCount(2), OptFlush(10*time.Millisecond), OptCounter(c))
 
 	ins := Action{
@@ -100,7 +100,7 @@ func TestIndexErr(t *testing.T) {
 	defer es.Stop()
 
 	errs := ErrorChan(make(chan ActionError))
-	c := &Count{}
+	c := &count{}
 	b := New([]string{es.Addr()},
 		OptConnCount(2),
 		OptFlush(10*time.Millisecond),
@@ -142,10 +142,10 @@ func TestIndexErr(t *testing.T) {
 	if have, want := len(pending), 0; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
 	}
-	if have, want := *c, (Count{
-		Retries:    Val{0, 0},
-		Sends:      Val{2, len(ins1.Document) + len(ins2.Document)},
-		SendTotals: Val{1, len(ins1.Buf()) + len(ins2.Buf())},
+	if have, want := *c, (count{
+		Retries:    val{0, 0},
+		Sends:      val{2, len(ins1.Document) + len(ins2.Document)},
+		SendTotals: val{1, len(ins1.Buf()) + len(ins2.Buf())},
 		Timeouts:   1,
 	}); have != want {
 		t.Fatalf("counts: have %v, want %v", have, want)

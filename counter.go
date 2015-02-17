@@ -59,42 +59,35 @@ func (DefaultCounter) BatchTime(time.Duration) {
 
 var _ Counter = DefaultCounter{}
 
-// Val counts occurrences and totals.
-type Val struct{ C, T int }
+type val struct{ C, T int }
 
-// Count implements Counter, just counting to exported fields.
-type Count struct {
-	Retries    Val
-	Sends      Val
-	SendTotals Val
+type count struct {
+	Retries    val
+	Sends      val
+	SendTotals val
 	Timeouts   int
 }
 
-// Retry increments c.Retries.
-func (c *Count) Retry(_ RetryType, _ ActionType, l int) {
+func (c *count) Retry(_ RetryType, _ ActionType, l int) {
 	c.Retries.C++
 	c.Retries.T += l
 }
 
-// Send increments c.Sends.
-func (c *Count) Send(_ ActionType, l int) {
+func (c *count) Send(_ ActionType, l int) {
 	c.Sends.C++
 	c.Sends.T += l
 }
 
-// SendTotal increments c.SendTotals.
-func (c *Count) SendTotal(l int) {
+func (c *count) SendTotal(l int) {
 	c.SendTotals.C++
 	c.SendTotals.T += l
 }
 
-// Timeout increments c.Timeouts.
-func (c *Count) Timeout() {
+func (c *count) Timeout() {
 	c.Timeouts++
 }
 
-// BatchTime is a trivial implementation.
-func (c *Count) BatchTime(time.Duration) {
+func (c *count) BatchTime(time.Duration) {
 }
 
-var _ Counter = &Count{}
+var _ Counter = &count{}
