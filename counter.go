@@ -4,24 +4,11 @@ import (
 	"time"
 )
 
-// RetryType distinguishes between reasons for retrying an action.
-type RetryType int
-
-const (
-	// RetryUnlikely is if the action is retried for reason that should not occur.
-	RetryUnlikely = iota
-
-	// RetryTransient is if the action is retried for a transient error, e.g. full queue.
-	RetryTransient
-)
-
 // Counter provides hooks to count documents going through bubbles.
 type Counter interface {
-	// Retry counts a retried action of type a with payload length l.
-	Retry(t RetryType, a ActionType, l int)
-
-	// Send counts a sent action of type a with payload length l.
-	Send(a ActionType, l int)
+	// Counts the numbers of individual actions that were sent
+	// successfully, retried or dropped due to error.
+	Actions(send, retry, error int)
 
 	// SendTotal counts a bulk post of total size l. This includes
 	// action metadata in contrast to Send.
@@ -37,12 +24,8 @@ type Counter interface {
 // DefaultCounter implements Counter, not counting anything.
 type DefaultCounter struct{}
 
-// Retry is a default trivial implementation.
-func (DefaultCounter) Retry(RetryType, ActionType, int) {
-}
-
-// Send is a default trivial implementation.
-func (DefaultCounter) Send(ActionType, int) {
+// Actions is a default trivial implementation.
+func (DefaultCounter) Actions(int, int, int) {
 }
 
 // SendTotal is a default trivial implementation.
@@ -62,20 +45,17 @@ var _ Counter = DefaultCounter{}
 type val struct{ C, T int }
 
 type count struct {
-	Retries    val
-	Sends      val
+	Sends      int
+	Retries    int
+	Errors     int
 	SendTotals val
 	Troubles   int
 }
 
-func (c *count) Retry(_ RetryType, _ ActionType, l int) {
-	c.Retries.C++
-	c.Retries.T += l
-}
-
-func (c *count) Send(_ ActionType, l int) {
-	c.Sends.C++
-	c.Sends.T += l
+func (c *count) Actions(s, r, e int) {
+	c.Sends += s
+	c.Retries += r
+	c.Errors += e
 }
 
 func (c *count) SendTotal(l int) {

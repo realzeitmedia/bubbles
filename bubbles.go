@@ -260,7 +260,8 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 			return
 		case <-time.After(backoffTrouble.wait()):
 		}
-		trouble, batchTime := runBatch(b, cl, url, min(backoffTrouble.size(), backoffTune.size()))
+		tuneMax := backoffTune.size()
+		trouble, batchTime, sent := runBatch(b, cl, url, min(backoffTrouble.size(), tuneMax))
 		if trouble {
 			backoffTrouble.inc()
 			b.c.Trouble()
@@ -269,7 +270,7 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 		}
 		if batchTime > tuneTimeout {
 			backoffTune.inc()
-		} else if batchTime <= tuneTimeout / 2 {
+		} else if batchTime <= tuneTimeout/2 && sent == tuneMax {
 			backoffTune.dec()
 		}
 		b.c.BatchTime(batchTime)
@@ -277,8 +278,9 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 }
 
 // runBatch gathers and deals with a batch of actions. It returns
-// whether there was trouble, and how long the actual request took.
-func runBatch(b *Bubbles, cl *http.Client, url string, batchSize int) (bool, time.Duration) {
+// whether there was trouble, how long the actual request took, and
+// how many items were sent successfully.
+func runBatch(b *Bubbles, cl *http.Client, url string, batchSize int) (bool, time.Duration, int) {
 	actions := make([]Action, 0, b.maxDocumentCount)
 	// First use all retry actions.
 retry:
@@ -304,7 +306,8 @@ gather:
 			for _, a := range actions {
 				b.retryQ <- a
 			}
-			return false, 0
+			b.c.Actions(0, len(actions), 0)
+			return false, 0, 0
 		case <-t:
 			// this case is not enabled until we've got an action
 			break gather
@@ -322,37 +325,42 @@ gather:
 		// A server error. Retry these actions later.
 		b.e.Error(err)
 		for _, a := range actions {
-			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
-		return true, dt
+		b.c.Actions(0, len(actions), 0)
+		return true, dt, 0
 	}
 
 	// Server has accepted the request an sich, but there can be errors in the
 	// individual actions.
 	if !res.Errors {
 		// Simple case, no errors present.
-		return false, dt
+		b.c.Actions(len(actions), 0, 0)
+		return false, dt, len(actions)
 	}
 
 	// Invalid response from ElasticSearch.
 	if len(actions) != len(res.Items) {
 		b.e.Error(errInvalidResponse)
 		for _, a := range actions {
-			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
 		}
-		return true, dt
+		b.c.Actions(0, len(actions), 0)
+		return true, dt, 0
 	}
 	// Figure out which actions have errors.
+	var (
+		retries = 0
+		errors  = 0
+	)
 	for i, e := range res.Items {
 		a := actions[i]
 		el, ok := e[string(a.Type)]
 		if !ok {
 			// Unexpected reply from ElasticSearch.
 			b.e.Error(errInvalidResponse)
-			b.c.Retry(RetryUnlikely, a.Type, len(a.Document))
 			b.retryQ <- a
+			retries++
 			continue
 		}
 
@@ -370,8 +378,8 @@ gather:
 				Msg:        fmt.Sprintf("transient error %d: %s", c, el.Error),
 				Server:     url,
 			})
-			b.c.Retry(RetryTransient, a.Type, len(a.Document))
 			b.retryQ <- a
+			retries++
 		case c >= 400 && c < 500:
 			// Some error. Nothing we can do with it.
 			b.e.Error(ActionError{
@@ -380,12 +388,16 @@ gather:
 				Msg:        fmt.Sprintf("error %d: %s", c, el.Error),
 				Server:     url,
 			})
+			errors++
 		default:
 			// No idea.
 			b.e.Error(fmt.Errorf("unwelcome response %d: %s", c, el.Error))
+			errors++
 		}
 	}
-	return true, dt
+	sent := len(actions) - errors - retries
+	b.c.Actions(sent, retries, errors)
+	return true, dt, sent
 }
 
 type bulkRes struct {
@@ -417,7 +429,6 @@ func interruptibleDo(cl *http.Client, req *http.Request, interrupt <-chan struct
 func postActions(c Counter, cl *http.Client, url string, actions []Action, quit <-chan struct{}) (*bulkRes, error) {
 	buf := bytes.Buffer{}
 	for _, a := range actions {
-		c.Send(a.Type, len(a.Document))
 		buf.Write(a.Buf())
 	}
 	c.SendTotal(buf.Len())
