@@ -1,4 +1,4 @@
-package bubbles
+package loges
 
 import (
 	"time"
@@ -41,33 +41,3 @@ func (DefaultCounter) BatchTime(time.Duration) {
 }
 
 var _ Counter = DefaultCounter{}
-
-type val struct{ C, T int }
-
-type count struct {
-	Sends      int
-	Retries    int
-	Errors     int
-	SendTotals val
-	Troubles   int
-}
-
-func (c *count) Actions(s, r, e int) {
-	c.Sends += s
-	c.Retries += r
-	c.Errors += e
-}
-
-func (c *count) SendTotal(l int) {
-	c.SendTotals.C++
-	c.SendTotals.T += l
-}
-
-func (c *count) Trouble() {
-	c.Troubles++
-}
-
-func (c *count) BatchTime(time.Duration) {
-}
-
-var _ Counter = &count{}
