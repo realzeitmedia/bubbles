@@ -399,7 +399,7 @@ gather:
 	}
 	sent := len(actions) - errors - retries
 	b.c.Actions(sent, retries, errors)
-	return true, dt, sent
+	return retries > 0, dt, sent
 }
 
 type bulkRes struct {
