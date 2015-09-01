@@ -149,7 +149,7 @@ func TestIndexErr(t *testing.T) {
 		Retries:    0,
 		Errors:     1,
 		SendTotals: val{1, len(ins1.Buf()) + len(ins2.Buf())},
-		Troubles:   1,
+		Troubles:   0,
 	}); have != want {
 		t.Fatalf("counts: have %v, want %v", have, want)
 	}
