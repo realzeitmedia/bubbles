@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"sync"
@@ -469,17 +468,15 @@ func postActions(
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("status: %s", resp.Status)
 	}
 
-	var bulk bulkRes
-	if err := json.Unmarshal(body, &bulk); err != nil {
+	var (
+		bulk bulkRes
+		d    = json.NewDecoder(resp.Body)
+	)
+	if err := d.Decode(&bulk); err != nil {
 		return nil, err
 	}
 	return &bulk, nil
