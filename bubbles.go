@@ -251,11 +251,13 @@ func min(x, y int) int {
 // client talks to ElasticSearch. This runs in a go routine in a loop and deals
 // with a single ElasticSearch address.
 func client(b *Bubbles, cl *http.Client, addr string) {
-	url := fmt.Sprintf("http://%s/_bulk", addr)
-
-	backoffTrouble := newBackoff(b.maxDocumentCount)
-	backoffTune := newBackoff(b.maxDocumentCount)
-	tuneTimeout := b.serverTimeout / tuneTimeoutRatio
+	var (
+		url            = fmt.Sprintf("http://%s/_bulk", addr)
+		backoffTrouble = newBackoff(b.maxDocumentCount)
+		backoffTune    = newBackoff(b.maxDocumentCount)
+		tuneTimeout    = b.serverTimeout / tuneTimeoutRatio
+		scratch        = &bytes.Buffer{}
+	)
 	for {
 		select {
 		case <-b.quit:
@@ -263,7 +265,13 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 		case <-time.After(backoffTrouble.wait()):
 		}
 		tuneMax := backoffTune.size()
-		trouble, batchTime, sent := runBatch(b, cl, url, min(backoffTrouble.size(), tuneMax))
+		trouble, batchTime, sent := runBatch(
+			b,
+			cl,
+			url,
+			min(backoffTrouble.size(), tuneMax),
+			scratch,
+		)
 		if trouble {
 			backoffTrouble.inc()
 			b.c.Trouble()
@@ -282,7 +290,13 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 // runBatch gathers and deals with a batch of actions. It returns
 // whether there was trouble, how long the actual request took, and
 // how many items were sent successfully.
-func runBatch(b *Bubbles, cl *http.Client, url string, batchSize int) (bool, time.Duration, int) {
+func runBatch(
+	b *Bubbles,
+	cl *http.Client,
+	url string,
+	batchSize int,
+	scratch *bytes.Buffer,
+) (bool, time.Duration, int) {
 	actions := make([]Action, 0, b.maxDocumentCount)
 	// First use all retry actions.
 retry:
@@ -321,7 +335,7 @@ gather:
 	}
 
 	t0 := time.Now()
-	res, err := postActions(b.c, cl, url, actions, b.quit)
+	res, err := postActions(b.c, cl, url, actions, b.quit, scratch)
 	dt := time.Since(t0)
 	if err != nil {
 		// A server error. Retry these actions later.
@@ -428,15 +442,22 @@ func interruptibleDo(cl *http.Client, req *http.Request, interrupt <-chan struct
 	return cl.Do(req)
 }
 
-func postActions(c loges.Counter, cl *http.Client, url string, actions []Action, quit <-chan struct{}) (*bulkRes, error) {
-	buf := bytes.Buffer{}
+func postActions(
+	c loges.Counter,
+	cl *http.Client,
+	url string,
+	actions []Action,
+	quit <-chan struct{},
+	buf *bytes.Buffer,
+) (*bulkRes, error) {
+	buf.Reset()
 	for _, a := range actions {
 		buf.Write(a.Buf())
 	}
 	c.SendTotal(buf.Len())
 
 	// This doesn't Chunk.
-	req, err := http.NewRequest("POST", url, &buf)
+	req, err := http.NewRequest("POST", url, buf)
 	if err != nil {
 		return nil, err
 	}
