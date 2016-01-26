@@ -165,6 +165,69 @@ func TestIndexErr(t *testing.T) {
 	}
 }
 
+func TestIndexCreate(t *testing.T) {
+	es := newMockES(
+		t,
+		func() string {
+			return `{"took":8,"errors":true,"items":[{"index":{"_index":"index","_type":"type1","_id":"1","_version":5,"status":200}},{"create":{"_index":"index","_type":"type1","_id":"2","status":400,"error":"MapperParsingException[failed to parse]; nested: JsonParseException[Unexpected end-of-input within/between OBJECT entries\n at [Source: [B@5f72a900; line: 1, column: 160]]; "}}]}`
+		},
+	)
+	defer es.Stop()
+
+	errs := NewTestErrs(t)
+	c := &count{}
+	b := New([]string{es.Addr()},
+		OptConnCount(2),
+		OptFlush(10*time.Millisecond),
+		OptErrer(errs),
+		OptCounter(c),
+	)
+
+	ins1 := Action{
+		Type: Index,
+		MetaData: MetaData{
+			Index: "test",
+			Type:  "type1",
+			ID:    "1",
+		},
+		Document: `{"field1": "value1"}`,
+	}
+	ins2 := Action{
+		Type: Index,
+		MetaData: MetaData{
+			Index: "test",
+			Type:  "type1",
+			ID:    "2",
+		},
+		Document: `{"field1": "value1"}`,
+	}
+
+	b.Enqueue() <- ins1
+	b.Enqueue() <- ins2
+	var aerr ActionError
+	select {
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timeout")
+	case aerr = <-errs.C:
+	}
+	if have, want := aerr.Action, ins2; have != want {
+		t.Fatalf("wrong err. have %v, want %v", have, want)
+	}
+	pending := b.Stop()
+	if have, want := len(pending), 0; have != want {
+		t.Fatalf("have %d, want %d: %v", have, want, pending)
+	}
+	if have, want := *c, (count{
+		Sends:      1,
+		Retries:    0,
+		Errors:     1,
+		SendTotals: val{1, len(ins1.Buf()) + len(ins2.Buf())},
+		Troubles:   0,
+	}); have != want {
+		t.Fatalf("counts: have %v, want %v", have, want)
+	}
+}
+
 func TestShutdownTimeout(t *testing.T) {
 	es := newMockES(t, func() string {
 		time.Sleep(10 * time.Second)
