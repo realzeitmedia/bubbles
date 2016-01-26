@@ -77,19 +77,29 @@ func TestIndexNoES(t *testing.T) {
 	}
 }
 
-type ErrorChan chan ActionError
+type TestErrs struct {
+	C chan ActionError
+	t *testing.T
+}
 
-func (e ErrorChan) Error(err error) {
-	switch t := err.(type) {
-	case ActionError:
-		e <- t
-	default:
-		log.Fatal(err)
+func NewTestErrs(t *testing.T) *TestErrs {
+	return &TestErrs{
+		C: make(chan ActionError),
+		t: t,
 	}
 }
 
-func (e ErrorChan) Warning(err error) {
-	log.Fatal(err)
+func (e *TestErrs) Error(err error) {
+	switch t := err.(type) {
+	case ActionError:
+		e.C <- t
+	default:
+		e.t.Fatal(err)
+	}
+}
+
+func (e *TestErrs) Warning(err error) {
+	e.t.Fatal(err)
 }
 
 func TestIndexErr(t *testing.T) {
@@ -101,7 +111,7 @@ func TestIndexErr(t *testing.T) {
 	)
 	defer es.Stop()
 
-	errs := ErrorChan(make(chan ActionError))
+	errs := NewTestErrs(t)
 	c := &count{}
 	b := New([]string{es.Addr()},
 		OptConnCount(2),
@@ -135,7 +145,7 @@ func TestIndexErr(t *testing.T) {
 	select {
 	case <-time.After(1 * time.Second):
 		t.Fatalf("timeout")
-	case aerr = <-errs:
+	case aerr = <-errs.C:
 	}
 	if have, want := aerr.Action, ins2; have != want {
 		t.Fatalf("wrong err. have %v, want %v", have, want)
