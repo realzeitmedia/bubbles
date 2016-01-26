@@ -20,7 +20,11 @@ func TestIndex(t *testing.T) {
 	defer es.Stop()
 
 	c := &count{}
-	b := New([]string{es.Addr()}, OptConnCount(2), OptFlush(10*time.Millisecond), OptCounter(c))
+	b := New([]string{es.Addr()},
+		OptConnCount(2),
+		OptFlush(10*time.Millisecond),
+		OptCounter(c),
+	)
 
 	ins := Action{
 		Type: Index,
@@ -51,7 +55,11 @@ func TestIndex(t *testing.T) {
 func TestIndexNoES(t *testing.T) {
 	// Index without an ES
 	c := &count{}
-	b := New([]string{"localhost:4321"}, OptConnCount(2), OptFlush(10*time.Millisecond), OptCounter(c))
+	b := New([]string{"localhost:4321"},
+		OptConnCount(2),
+		OptFlush(10*time.Millisecond),
+		OptCounter(c),
+	)
 
 	ins := Action{
 		Type: Index,
