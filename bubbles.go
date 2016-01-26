@@ -372,6 +372,10 @@ gather:
 		a := actions[i]
 		el, ok := e[string(a.Type)]
 		if !ok {
+			// cheap fallback. 'Index' sometimes throws 'Create' errors.
+			el, ok = e[string(Create)]
+		}
+		if !ok {
 			// Unexpected reply from ElasticSearch.
 			b.e.Error(errInvalidResponse)
 			b.retryQ <- a
