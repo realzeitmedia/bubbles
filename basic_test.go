@@ -78,28 +78,35 @@ func TestIndexNoES(t *testing.T) {
 }
 
 type TestErrs struct {
-	C chan ActionError
-	t *testing.T
+	Errors   chan ActionError
+	Warnings chan ActionError
+	t        *testing.T
 }
 
 func NewTestErrs(t *testing.T) *TestErrs {
 	return &TestErrs{
-		C: make(chan ActionError),
-		t: t,
+		Errors:   make(chan ActionError),
+		Warnings: make(chan ActionError),
+		t:        t,
 	}
 }
 
 func (e *TestErrs) Error(err error) {
 	switch t := err.(type) {
 	case ActionError:
-		e.C <- t
+		e.Errors <- t
 	default:
 		e.t.Fatal(err)
 	}
 }
 
 func (e *TestErrs) Warning(err error) {
-	e.t.Fatal(err)
+	switch t := err.(type) {
+	case ActionError:
+		e.Warnings <- t
+	default:
+		e.t.Fatal(err)
+	}
 }
 
 func TestIndexErr(t *testing.T) {
@@ -145,7 +152,7 @@ func TestIndexErr(t *testing.T) {
 	select {
 	case <-time.After(1 * time.Second):
 		t.Fatalf("timeout")
-	case aerr = <-errs.C:
+	case aerr = <-errs.Errors:
 	}
 	if have, want := aerr.Action, ins2; have != want {
 		t.Fatalf("wrong err. have %v, want %v", have, want)
@@ -169,7 +176,7 @@ func TestIndexCreate(t *testing.T) {
 	es := newMockES(
 		t,
 		func() string {
-			return `{"took":8,"errors":true,"items":[{"index":{"_index":"index","_type":"type1","_id":"1","_version":5,"status":200}},{"create":{"_index":"index","_type":"type1","_id":"2","status":400,"error":"MapperParsingException[failed to parse]; nested: JsonParseException[Unexpected end-of-input within/between OBJECT entries\n at [Source: [B@5f72a900; line: 1, column: 160]]; "}}]}`
+			return `{"took":8,"errors":true,"items":[{"index":{"_index":"index","_type":"type1","_id":"1","_version":5,"status":200}},{"create":{"_index":"index","_type":"type1","_id":"2","status":429,"error":"RemoteTransportException[[rz-es6-go][inet[/1.2.3.4:9300]][indices:data/write/bulk[s]]]; nested: EsRejectedExecutionException[rejected execution (queue capacity 300) on org.elasticsearch.action.support.replication.TransportShardReplicationOperationAction$PrimaryPhase$1@1204a018];"}}]}`
 		},
 	)
 	defer es.Stop()
@@ -204,27 +211,30 @@ func TestIndexCreate(t *testing.T) {
 
 	b.Enqueue() <- ins1
 	b.Enqueue() <- ins2
-	var aerr ActionError
+	var awarning ActionError
 	select {
 	case <-time.After(1 * time.Second):
 		t.Fatalf("timeout")
-	case aerr = <-errs.C:
+	case awarning = <-errs.Warnings:
 	}
-	if have, want := aerr.Action, ins2; have != want {
+	if have, want := awarning.Action, ins2; have != want {
 		t.Fatalf("wrong err. have %v, want %v", have, want)
 	}
 	pending := b.Stop()
-	if have, want := len(pending), 0; have != want {
+	if have, want := len(pending), 1; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
 	}
 	if have, want := *c, (count{
 		Sends:      1,
-		Retries:    0,
-		Errors:     1,
+		Retries:    2,
+		Errors:     0,
 		SendTotals: val{1, len(ins1.Buf()) + len(ins2.Buf())},
-		Troubles:   0,
+		Troubles:   1,
 	}); have != want {
 		t.Fatalf("counts: have %v, want %v", have, want)
+	}
+	if have, want := len(errs.Errors), 0; have != want {
+		t.Fatalf("have %d, want %d", have, want)
 	}
 }
 
