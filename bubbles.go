@@ -432,19 +432,6 @@ type bulkRes struct {
 	} `json:"items"`
 }
 
-func interruptibleDo(cl *http.Client, req *http.Request, interrupt <-chan struct{}) (*http.Response, error) {
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-interrupt:
-			cl.Transport.(*http.Transport).CancelRequest(req)
-		case <-done:
-		}
-	}()
-	defer close(done)
-	return cl.Do(req)
-}
-
 func postActions(
 	c loges.Counter,
 	cl *http.Client,
@@ -465,8 +452,8 @@ func postActions(
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := interruptibleDo(cl, req, quit)
+	req.Cancel = quit
+	resp, err := cl.Do(req)
 	if err != nil {
 		return nil, err
 	}
