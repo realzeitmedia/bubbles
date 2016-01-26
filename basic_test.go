@@ -85,7 +85,7 @@ type TestErrs struct {
 
 func NewTestErrs(t *testing.T) *TestErrs {
 	return &TestErrs{
-		Errors:   make(chan ActionError),
+		Errors:   make(chan ActionError, 1),
 		Warnings: make(chan ActionError),
 		t:        t,
 	}

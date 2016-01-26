@@ -42,7 +42,7 @@ func TestLiveIndex(t *testing.T) {
 func TestLiveIndexError(t *testing.T) {
 	// Index with errors.
 
-	errs := ErrorChan(make(chan ActionError, 1))
+	errs := NewTestErrs(t)
 	b := New([]string{addr},
 		OptFlush(10*time.Millisecond),
 		OptErrer(errs),
@@ -76,7 +76,7 @@ func TestLiveIndexError(t *testing.T) {
 	}
 
 	// ins2 has a fatal error and should be reported via the error cb.
-	errored := <-errs
+	errored := <-errs.Errors
 	if have, want := errored.Action, ins2; have != want {
 		t.Fatalf("have %v, want %v", have, want)
 	}
@@ -87,9 +87,9 @@ func TestLiveIndexError(t *testing.T) {
 	if !strings.HasPrefix(have, want) {
 		t.Fatalf("have %s, want %s", have, want)
 	}
-	close(errs)
+	close(errs.Errors)
 	// That should have been our only error.
-	if _, ok := <-errs; ok {
+	if _, ok := <-errs.Errors; ok {
 		t.Fatalf("error channel should have been closed")
 	}
 }
@@ -135,16 +135,6 @@ func TestLiveMany(t *testing.T) {
 	}
 	wg.Wait()
 
-	// One more to flush things.
-	b.Enqueue() <- Action{
-		Type: Create,
-		MetaData: MetaData{
-			Index:   index,
-			Type:    "type1",
-			Refresh: true, // <--
-		},
-		Document: `{"field1": "value1"}`,
-	}
 	time.Sleep(200 * time.Millisecond)
 
 	pending := b.Stop()
@@ -156,7 +146,7 @@ func TestLiveMany(t *testing.T) {
 	done := make(chan struct{}, 1)
 	go func() {
 		for {
-			if getDocCount() >= 10001 {
+			if getDocCount() >= documents {
 				break
 			}
 			time.Sleep(10 * time.Millisecond)
@@ -168,7 +158,7 @@ func TestLiveMany(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatalf("Timeout waiting for documents")
 	}
-	if have, want := getDocCount(), 10001; have != want {
+	if have, want := getDocCount(), documents; have != want {
 		t.Fatalf("have %d, want %d", have, want)
 	}
 }

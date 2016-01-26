@@ -35,7 +35,6 @@ type MetaData struct {
 	ID              string `json:"_id,omitempty"`
 	RetryOnConflict int    `json:"_retry_on_conflict,omitempty"`
 	// All those are not checked:
-	Refresh     bool   `json:"refresh,omitempty"`
 	Timestamp   int    `json:"_timestamp,omitempty"`
 	TTL         int    `json:"ttl,omitempty"`
 	Consistency string `json:"consistency,omitempty"`
