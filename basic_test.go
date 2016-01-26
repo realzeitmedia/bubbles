@@ -129,7 +129,7 @@ func TestIndexErr(t *testing.T) {
 	errs := NewTestErrs(t)
 	c := &count{}
 	b := New([]string{es.Addr()},
-		OptConnCount(2),
+		OptConnCount(1),
 		OptFlush(10*time.Millisecond),
 		OptErrer(errs),
 		OptCounter(c),
@@ -192,7 +192,7 @@ func TestIndexCreate(t *testing.T) {
 	errs := NewTestErrs(t)
 	c := &count{}
 	b := New([]string{es.Addr()},
-		OptConnCount(2),
+		OptConnCount(1),
 		OptFlush(10*time.Millisecond),
 		OptErrer(errs),
 		OptCounter(c),
@@ -234,7 +234,7 @@ func TestIndexCreate(t *testing.T) {
 	}
 	if have, want := *c, (count{
 		Sends:      1,
-		Retries:    2,
+		Retries:    1,
 		Errors:     0,
 		SendTotals: val{1, len(ins1.Buf()) + len(ins2.Buf())},
 		Troubles:   1,
