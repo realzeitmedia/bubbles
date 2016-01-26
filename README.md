@@ -17,3 +17,8 @@ Run `make test` for the basics, no ElasticSearch daemon required.
 
 Run `make livetest` if there is an ElasticSearch available on localhost:9200.
 It'll delete the index 'bubbles'.
+
+# Misc
+
+[![Build Status](https://travis-ci.org/realzeitmedia/bubbles.svg?branch=master)](https://travis-ci.org/realzeitmedia/bubbles) 
+[![GoDoc](https://godoc.org/github.com/realzeitmedia/bubbles?status.svg)](https://godoc.org/github.com/realzeitmedia/bubbles)
