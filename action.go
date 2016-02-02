@@ -41,7 +41,7 @@ type MetaData struct {
 }
 
 // Buf returns the command ready for the ElasticSearch bulk buffer.
-func (a *Action) Buf() []byte {
+func (a *Action) Buf() string {
 	switch a.Type {
 	default:
 		panic("what's this?")
@@ -50,12 +50,12 @@ func (a *Action) Buf() []byte {
 		if err != nil {
 			panic(err.Error())
 		}
-		return []byte(fmt.Sprintf("{\"%s\": %s}\n%s\n", a.Type, md, a.Document))
+		return fmt.Sprintf("{\"%s\": %s}\n%s\n", a.Type, md, a.Document)
 	case Delete:
 		md, err := json.Marshal(a.MetaData)
 		if err != nil {
 			panic(err.Error())
 		}
-		return []byte(fmt.Sprintf("{\"%s\": %s}\n", a.Type, md))
+		return fmt.Sprintf("{\"%s\": %s}\n", a.Type, md)
 	}
 }

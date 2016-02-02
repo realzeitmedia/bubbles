@@ -442,7 +442,7 @@ func postActions(
 ) (*bulkRes, error) {
 	buf.Reset()
 	for _, a := range actions {
-		buf.Write(a.Buf())
+		buf.WriteString(a.Buf())
 	}
 	c.SendTotal(buf.Len())
 
