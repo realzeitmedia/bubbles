@@ -8,14 +8,15 @@ package bubbles
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/alicebob/json"
 	"github.com/realzeitmedia/bubbles/loges"
 )
 
@@ -463,12 +464,13 @@ func postActions(
 		return nil, fmt.Errorf("status: %s", resp.Status)
 	}
 
-	var (
-		bulk bulkRes
-		d    = json.NewDecoder(resp.Body)
-	)
-	if err := d.Decode(&bulk); err != nil {
+	b, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
 		return nil, err
+	}
+	var bulk bulkRes
+	if err := json.Decode(string(b), &bulk); err != nil {
+		return nil, fmt.Errorf("err %s in %q", err, string(b))
 	}
 	return &bulk, nil
 }
