@@ -27,8 +27,8 @@ func cleanES() {
 	if err != nil {
 		panic(err)
 	}
-	if res.StatusCode != 200 {
-		panic("DELETE err")
+	if !(res.StatusCode == 200 || res.StatusCode == 404) {
+		panic(fmt.Sprintf("DELETE err: %d", res.StatusCode))
 	}
 	res.Body.Close()
 }
@@ -61,7 +61,7 @@ func TestLiveIndexError(t *testing.T) {
 
 	errs := NewTestErrs(t)
 	b := New([]string{addr},
-		OptFlush(10*time.Millisecond),
+		OptFlush(100*time.Millisecond),
 		OptServerTimeout(3*time.Second),
 		OptErrer(errs),
 	)
@@ -87,10 +87,8 @@ func TestLiveIndexError(t *testing.T) {
 
 	b.Enqueue() <- ins1
 	b.Enqueue() <- ins2
-	time.Sleep(100 * time.Millisecond)
-	fmt.Println("sleep")
+	time.Sleep(500 * time.Millisecond)
 	pending := b.Stop()
-	fmt.Println("stopped")
 	if have, want := len(pending), 0; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
 	}
@@ -100,7 +98,6 @@ func TestLiveIndexError(t *testing.T) {
 	if have, want := errored.Action, ins2; have != want {
 		t.Fatalf("have %v, want %v", have, want)
 	}
-	fmt.Println("elsewhere")
 	// Check the error message. The last part has some pointers in there so we
 	// can't check that.
 	want := `http://` + addr + `:9200/_bulk: index error 400: MapperParsingException[failed to parse]; nested: JsonParseException` // &c.
@@ -109,7 +106,6 @@ func TestLiveIndexError(t *testing.T) {
 		t.Fatalf("have %s, want %s", have, want)
 	}
 	close(errs.Errors)
-	fmt.Println("end")
 	// That should have been our only error.
 	if _, ok := <-errs.Errors; ok {
 		t.Fatalf("error channel should have been closed")

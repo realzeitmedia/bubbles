@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -151,12 +152,10 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 		addr := withPort(a, defaultElasticSearchPort)
 		for i := 0; i < b.connCount; i++ {
 			b.wg.Add(1)
-			go func(a string, i int) {
-				fmt.Printf("start client %d\n", i)
-				client(&b, cl, a, i)
-				fmt.Printf("done client %d\n", i)
+			go func(a string) {
+				client(&b, cl, a)
 				b.wg.Done()
-			}(addr, i)
+			}(addr)
 		}
 	}
 	return &b
@@ -174,9 +173,7 @@ func (b *Bubbles) Stop() []Action {
 	close(b.quit)
 	// There is no explicit timeout, we rely on b.serverTimeout to shut down
 	// everything.
-	fmt.Println("wait 1")
 	b.wg.Wait()
-	fmt.Println("wait 2")
 
 	// Collect and return elements which are in flight.
 	close(b.retryQ)
@@ -253,11 +250,7 @@ func min(x, y int) int {
 
 // client talks to ElasticSearch. This runs in a go routine in a loop and deals
 // with a single ElasticSearch address.
-func client(b *Bubbles, cl *http.Client, addr string, i int) {
-	fmt.Printf("in client %d\n", i)
-	defer func() {
-		fmt.Printf("out client %d\n", i)
-	}()
+func client(b *Bubbles, cl *http.Client, addr string) {
 	var (
 		url            = fmt.Sprintf("http://%s/_bulk", addr)
 		backoffTrouble = newBackoff(b.maxDocumentCount)
@@ -266,24 +259,19 @@ func client(b *Bubbles, cl *http.Client, addr string, i int) {
 		scratch        = &bytes.Buffer{}
 	)
 	for {
-		fmt.Printf("client loop %d...\n", i)
 		select {
 		case <-b.quit:
-			fmt.Printf("client quit %d\n", i)
 			return
 		case <-time.After(backoffTrouble.wait()):
 		}
 		tuneMax := backoffTune.size()
-		fmt.Printf("pre runBatch %d...\n", i)
 		trouble, batchTime, sent := runBatch(
 			b,
 			cl,
 			url,
 			min(backoffTrouble.size(), tuneMax),
 			scratch,
-			i,
 		)
-		fmt.Printf("post runBatch %d...\n", i)
 		if trouble {
 			backoffTrouble.inc()
 			b.c.Trouble()
@@ -308,12 +296,7 @@ func runBatch(
 	url string,
 	batchSize int,
 	scratch *bytes.Buffer,
-	i int,
 ) (bool, time.Duration, int) {
-	fmt.Printf("in runBatch %d\n", i)
-	defer func() {
-		fmt.Printf("out of runBatch %d\n", i)
-	}()
 	actions := make([]Action, 0, b.maxDocumentCount)
 	// First use all retry actions.
 retry:
@@ -336,12 +319,10 @@ gather:
 		}
 		select {
 		case <-b.quit:
-			fmt.Printf("go quit %d\n", i)
 			for _, a := range actions {
 				b.retryQ <- a
 			}
 			b.c.Actions(0, len(actions), 0)
-			fmt.Printf("done quit %d\n", i)
 			return false, 0, 0
 		case <-t:
 			// this case is not enabled until we've got an action
@@ -354,13 +335,13 @@ gather:
 	}
 
 	t0 := time.Now()
-	fmt.Printf("pre postActions %d (%d actions)\n", i, len(actions))
 	res, err := postActions(b.c, cl, url, actions, b.quit, scratch)
-	fmt.Printf("post postActions %d\n", i)
 	dt := time.Since(t0)
 	if err != nil {
 		// A server error. Retry these actions later.
-		b.e.Error(err)
+		if !strings.Contains(err.Error(), "net/http: request canceled") {
+			b.e.Error(err)
+		}
 		for _, a := range actions {
 			b.retryQ <- a
 		}
