@@ -18,7 +18,23 @@ const (
 	index = "bubbles"
 )
 
+func cleanES() {
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("http://%s:9200/%s", addr, index), nil)
+	if err != nil {
+		panic(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	if !(res.StatusCode == 200 || res.StatusCode == 404) {
+		panic(fmt.Sprintf("DELETE err: %d", res.StatusCode))
+	}
+	res.Body.Close()
+}
+
 func TestLiveIndex(t *testing.T) {
+	cleanES()
 	b := New([]string{addr}, OptFlush(10*time.Millisecond))
 
 	ins := Action{
@@ -32,7 +48,7 @@ func TestLiveIndex(t *testing.T) {
 	}
 
 	b.Enqueue() <- ins
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	pending := b.Stop()
 	if have, want := len(pending), 0; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
@@ -40,11 +56,13 @@ func TestLiveIndex(t *testing.T) {
 }
 
 func TestLiveIndexError(t *testing.T) {
+	cleanES()
 	// Index with errors.
 
 	errs := NewTestErrs(t)
 	b := New([]string{addr},
-		OptFlush(10*time.Millisecond),
+		OptFlush(100*time.Millisecond),
+		OptServerTimeout(3*time.Second),
 		OptErrer(errs),
 	)
 
@@ -69,7 +87,7 @@ func TestLiveIndexError(t *testing.T) {
 
 	b.Enqueue() <- ins1
 	b.Enqueue() <- ins2
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	pending := b.Stop()
 	if have, want := len(pending), 0; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
@@ -95,26 +113,15 @@ func TestLiveIndexError(t *testing.T) {
 }
 
 func TestLiveMany(t *testing.T) {
-	b := New([]string{addr},
-		OptFlush(10*time.Millisecond),
-	)
+	cleanES()
 
 	var (
+		b = New([]string{addr},
+			OptFlush(10*time.Millisecond),
+		)
 		clients   = 10
 		documents = 10000
 	)
-	req, err := http.NewRequest("DELETE", fmt.Sprintf("http://%s:9200/%s", addr, index), nil)
-	if err != nil {
-		panic(err)
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	if res.StatusCode != 200 {
-		panic("DELETE err")
-	}
-	res.Body.Close()
 
 	var wg sync.WaitGroup
 	for i := 0; i < clients; i++ {

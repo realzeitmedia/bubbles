@@ -104,7 +104,7 @@ func (e *TestErrs) Error(err error) {
 	case ActionError:
 		e.Errors <- t
 	default:
-		e.t.Fatal(err)
+		e.t.Error(err)
 	}
 }
 

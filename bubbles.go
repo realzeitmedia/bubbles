@@ -13,6 +13,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -339,7 +340,9 @@ gather:
 	dt := time.Since(t0)
 	if err != nil {
 		// A server error. Retry these actions later.
-		b.e.Error(err)
+		if !strings.Contains(err.Error(), "net/http: request canceled") {
+			b.e.Error(err)
+		}
 		for _, a := range actions {
 			b.retryQ <- a
 		}
