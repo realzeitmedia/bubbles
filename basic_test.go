@@ -121,7 +121,7 @@ func TestIndexErr(t *testing.T) {
 	es := newMockES(
 		t,
 		func() string {
-			return `{"took":8,"errors":true,"items":[{"index":{"_index":"index","_type":"type1","_id":"1","_version":5,"status":200}},{"index":{"_index":"index","_type":"type1","_id":"2","status":400,"error":"MapperParsingException[failed to parse]; nested: JsonParseException[Unexpected end-of-input within/between OBJECT entries\n at [Source: [B@5f72a900; line: 1, column: 160]]; "}}]}`
+			return `{"took":8,"errors":true,"items":[{"index":{"_index":"index","_type":"type1","_id":"1","_version":5,"status":200}},{"index":{"_index":"index","_type":"type1","_id":"2","status":400,"error":{"reason":"MapperParsingException[failed to parse]; nested: JsonParseException[Unexpected end-of-input within/between OBJECT entries\n at [Source: [B@5f72a900; line: 1, column: 160]]; "}}}]}`
 		},
 	)
 	defer es.Stop()
@@ -184,7 +184,7 @@ func TestIndexCreate(t *testing.T) {
 	es := newMockES(
 		t,
 		func() string {
-			return `{"took":8,"errors":true,"items":[{"index":{"_index":"index","_type":"type1","_id":"1","_version":5,"status":200}},{"create":{"_index":"index","_type":"type1","_id":"2","status":429,"error":"RemoteTransportException[[rz-es6-go][inet[/1.2.3.4:9300]][indices:data/write/bulk[s]]]; nested: EsRejectedExecutionException[rejected execution (queue capacity 300) on org.elasticsearch.action.support.replication.TransportShardReplicationOperationAction$PrimaryPhase$1@1204a018];"}}]}`
+			return `{"took":8,"errors":true,"items":[{"index":{"_index":"index","_type":"type1","_id":"1","_version":5,"status":200}},{"create":{"_index":"index","_type":"type1","_id":"2","status":429,"error":{"reason":"RemoteTransportException[[rz-es6-go][inet[/1.2.3.4:9300]][indices:data/write/bulk[s]]]; nested: EsRejectedExecutionException[rejected execution (queue capacity 300) on org.elasticsearch.action.support.replication.TransportShardReplicationOperationAction$PrimaryPhase$1@1204a018];"}}}]}`
 		},
 	)
 	defer es.Stop()

@@ -396,20 +396,20 @@ gather:
 			// We get a 429 when the bulk queue is full, which we just retry as
 			// well.
 			b.e.Warning(ActionError{
-				Action:     a,
-				StatusCode: c,
-				Msg:        fmt.Sprintf("transient error %d: %s", c, el.Error),
-				Server:     url,
+				Action:        a,
+				StatusCode:    c,
+				Server:        url,
+				Elasticsearch: el.Error,
 			})
 			b.retryQ <- a
 			retries++
 		case c >= 400 && c < 500:
 			// Some error. Nothing we can do with it.
 			b.e.Error(ActionError{
-				Action:     a,
-				StatusCode: c,
-				Msg:        fmt.Sprintf("error %d: %s", c, el.Error),
-				Server:     url,
+				Action:        a,
+				StatusCode:    c,
+				Server:        url,
+				Elasticsearch: el.Error,
 			})
 			errors++
 		default:
@@ -423,16 +423,26 @@ gather:
 	return retries > 0, dt, sent
 }
 
+// ESError is a raw Elasticsearch error
+type ESError struct {
+	Type     string `json:"type"`
+	Reason   string `json:"reason"`
+	CausedBy struct {
+		Type   string `json:"type"`
+		Reason string `json:"reason"`
+	} `json:"caused_by"`
+}
+
 type bulkRes struct {
 	Took   int  `json:"took"`
 	Errors bool `json:"errors"`
 	Items  []map[string]struct {
-		Index   string `json:"_index"`
-		Type    string `json:"_type"`
-		ID      string `json:"_id"`
-		Version int    `json:"_version"`
-		Status  int    `json:"status"`
-		Error   string `json:"error"`
+		Index   string  `json:"_index"`
+		Type    string  `json:"_type"`
+		ID      string  `json:"_id"`
+		Version int     `json:"_version"`
+		Status  int     `json:"status"`
+		Error   ESError `json:"error"`
 	} `json:"items"`
 }
 
@@ -480,14 +490,14 @@ func postActions(
 
 // ActionError wraps an Action we won't retry. It implements the error interface.
 type ActionError struct {
-	Action     Action
-	StatusCode int
-	Msg        string
-	Server     string
+	Action        Action
+	StatusCode    int
+	Server        string
+	Elasticsearch ESError
 }
 
 func (e ActionError) Error() string {
-	return fmt.Sprintf("%s: %s %s", e.Server, e.Action.Type, e.Msg)
+	return fmt.Sprintf("%s %s status %d: %s %s", e.Server, e.Action.Type, e.StatusCode, e.Elasticsearch.Type, e.Elasticsearch.Reason)
 }
 
 // withPort adds a default port to an address string.

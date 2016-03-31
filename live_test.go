@@ -98,12 +98,11 @@ func TestLiveIndexError(t *testing.T) {
 	if have, want := errored.Action, ins2; have != want {
 		t.Fatalf("have %v, want %v", have, want)
 	}
-	// Check the error message. The last part has some pointers in there so we
-	// can't check that.
-	want := `http://` + addr + `:9200/_bulk: index error 400: MapperParsingException[failed to parse]; nested: JsonParseException` // &c.
-	have := errored.Error()
-	if !strings.HasPrefix(have, want) {
-		t.Fatalf("have %s, want %s", have, want)
+	if have, want := errored.Elasticsearch.Type, "mapper_parsing_exception"; have != want {
+		t.Fatalf("have %q, want %q", have, want)
+	}
+	if have, want := errored.Error(), "http://localhost:9200/_bulk index status 400: mapper_parsing_exception failed to parse"; have != want {
+		t.Fatalf("have %q, want %q", have, want)
 	}
 	close(errs.Errors)
 	// That should have been our only error.
