@@ -18,23 +18,23 @@ const (
 	index = "bubbles"
 )
 
-func cleanES() {
+func cleanES(t *testing.T) {
 	req, err := http.NewRequest("DELETE", fmt.Sprintf("http://%s:9200/%s", addr, index), nil)
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 	if !(res.StatusCode == 200 || res.StatusCode == 404) {
-		panic(fmt.Sprintf("DELETE err: %d", res.StatusCode))
+		t.Fatal(fmt.Sprintf("DELETE err: %d", res.StatusCode))
 	}
 	res.Body.Close()
 }
 
 func TestLiveIndex(t *testing.T) {
-	cleanES()
+	cleanES(t)
 	b := New([]string{addr}, OptFlush(10*time.Millisecond))
 
 	ins := Action{
@@ -56,7 +56,7 @@ func TestLiveIndex(t *testing.T) {
 }
 
 func TestLiveIndexError(t *testing.T) {
-	cleanES()
+	cleanES(t)
 	// Index with errors.
 
 	errs := NewTestErrs(t)
@@ -112,7 +112,7 @@ func TestLiveIndexError(t *testing.T) {
 }
 
 func TestLiveMany(t *testing.T) {
-	cleanES()
+	cleanES(t)
 
 	var (
 		b = New([]string{addr},
