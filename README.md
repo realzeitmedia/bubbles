@@ -2,7 +2,7 @@ ElasticSearch Bulk indexer
 
 This small Go library does ElasticSearch Bulk operations only. Actions which resulted in an error will be retried individually. See example_test.go how to use this.
 
-It is tested on the 1.X ElasticSearch series.
+It is tested on the 2.X ElasticSearch series.
 
 For details about Bulk inserts:
 http://www.elasticsearch.org/guide/reference/api/bulk.html
