@@ -47,8 +47,8 @@ func TestLiveIndex(t *testing.T) {
 		Document: `{"field1": "value1"}`,
 	}
 
-	b.Enqueue() <- ins
-	time.Sleep(500 * time.Millisecond)
+	b.Enqueue(ins)
+	b.Wait(10 * time.Second)
 	pending := b.Stop()
 	if have, want := len(pending), 0; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
@@ -85,9 +85,9 @@ func TestLiveIndexError(t *testing.T) {
 		Document: `{"field1": `, // <-- invalid!
 	}
 
-	b.Enqueue() <- ins1
-	b.Enqueue() <- ins2
-	time.Sleep(500 * time.Millisecond)
+	b.Enqueue(ins1)
+	b.Enqueue(ins2)
+	b.Wait(500 * time.Millisecond)
 	pending := b.Stop()
 	if have, want := len(pending), 0; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
@@ -127,22 +127,21 @@ func TestLiveMany(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			for j := 0; j < documents/clients; j++ {
-				b.Enqueue() <- Action{
+				b.Enqueue(Action{
 					Type: Create,
 					MetaData: MetaData{
 						Index: index,
 						Type:  "type1",
 					},
 					Document: `{"field1": "value1"}`,
-				}
+				})
 			}
 			wg.Done()
 		}()
 	}
 	wg.Wait()
 
-	time.Sleep(200 * time.Millisecond)
-
+	b.Wait(10 * time.Second)
 	pending := b.Stop()
 	if have, want := len(pending), 0; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)

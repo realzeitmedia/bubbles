@@ -36,7 +36,7 @@ func TestIndex(t *testing.T) {
 		Document: `{"field1": "value1"}`,
 	}
 
-	b.Enqueue() <- ins
+	b.Enqueue(ins)
 	time.Sleep(100 * time.Millisecond)
 	pending := b.Stop()
 	if have, want := len(pending), 0; have != want {
@@ -71,7 +71,7 @@ func TestIndexNoES(t *testing.T) {
 		Document: `{"field1": "value1"}`,
 	}
 
-	b.Enqueue() <- ins
+	b.Enqueue(ins)
 	time.Sleep(20 * time.Millisecond)
 	pending := b.Stop()
 	if have, want := len(pending), 1; have != want {
@@ -154,8 +154,8 @@ func TestIndexErr(t *testing.T) {
 		Document: `{"field1": `, // fake an error
 	}
 
-	b.Enqueue() <- ins1
-	b.Enqueue() <- ins2
+	b.Enqueue(ins1)
+	b.Enqueue(ins2)
 	var aerr ActionError
 	select {
 	case <-time.After(1 * time.Second):
@@ -217,8 +217,8 @@ func TestIndexCreate(t *testing.T) {
 		Document: `{"field1": "value1"}`,
 	}
 
-	b.Enqueue() <- ins1
-	b.Enqueue() <- ins2
+	b.Enqueue(ins1)
+	b.Enqueue(ins2)
 	var awarning ActionError
 	select {
 	case <-time.After(1 * time.Second):
@@ -272,7 +272,7 @@ func TestShutdownTimeout(t *testing.T) {
 	}
 	docs := maxDocs
 	for i := 0; i < docs; i++ {
-		b.Enqueue() <- ins
+		b.Enqueue(ins)
 	}
 
 	time.Sleep(20 * time.Millisecond)
@@ -287,6 +287,97 @@ func TestShutdownTimeout(t *testing.T) {
 		t.Fatalf("Stop() took too long")
 	}
 	if have, want := len(pending), docs; have != want {
+		t.Fatalf("have %d, want %d: %v", have, want, pending)
+	}
+	if pending[0] != ins {
+		t.Errorf("Wrong pending object returned")
+	}
+}
+
+func TestWaitOK(t *testing.T) {
+	es := newMockES(t, func() string {
+		time.Sleep(500 * time.Millisecond)
+		return "{}"
+	})
+	defer es.Stop()
+
+	b := New([]string{es.Addr()},
+		OptConnCount(1),
+		OptFlush(10*time.Millisecond),
+		OptServerTimeout(5*time.Second),
+		OptMaxDocs(5),
+	)
+
+	ins := Action{
+		Type: Index,
+		MetaData: MetaData{
+			Index: "test",
+			Type:  "type1",
+			ID:    "1",
+		},
+		Document: `{"field1": "value1"}`,
+	}
+	b.Enqueue(ins)
+
+	p := make(chan struct{}, 1)
+	go func() {
+		b.Wait(700 * time.Millisecond)
+		p <- struct{}{}
+	}()
+	start := time.Now()
+	select {
+	case <-p:
+		if time.Since(start) < 450*time.Millisecond {
+			t.Fatalf("Wait() didn't take long enough")
+		}
+	case <-time.After(600 * time.Millisecond):
+		t.Fatalf("Wait() took too long")
+	}
+
+	pending := b.Stop()
+	if have, want := len(pending), 0; have != want {
+		t.Fatalf("have %d, want %d: %v", have, want, pending)
+	}
+}
+
+func TestWaitTimeout(t *testing.T) {
+	es := newMockES(t, func() string {
+		time.Sleep(5 * time.Second)
+		return "{}"
+	})
+	defer es.Stop()
+
+	b := New([]string{es.Addr()},
+		OptConnCount(1),
+		OptFlush(10*time.Millisecond),
+		OptServerTimeout(5*time.Second),
+		OptMaxDocs(5),
+	)
+
+	ins := Action{
+		Type: Index,
+		MetaData: MetaData{
+			Index: "test",
+			Type:  "type1",
+			ID:    "1",
+		},
+		Document: `{"field1": "value1"}`,
+	}
+	b.Enqueue(ins)
+
+	p := make(chan struct{}, 1)
+	go func() {
+		b.Wait(700 * time.Millisecond)
+		p <- struct{}{}
+	}()
+	select {
+	case <-p:
+	case <-time.After(1 * time.Second):
+		t.Fatalf("Wait() took too long")
+	}
+
+	pending := b.Stop()
+	if have, want := len(pending), 1; have != want {
 		t.Fatalf("have %d, want %d: %v", have, want, pending)
 	}
 	if pending[0] != ins {

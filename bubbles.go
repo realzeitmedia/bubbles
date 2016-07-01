@@ -53,10 +53,12 @@ var (
 // Bubbles is the main struct to control a queue of Actions going to the
 // ElasticSearch servers.
 type Bubbles struct {
-	q                chan Action
-	retryQ           chan Action
-	quit             chan struct{}
-	wg               sync.WaitGroup
+	q        chan Action
+	retryQ   chan Action
+	quit     chan struct{}
+	clientWg sync.WaitGroup
+	docWg    sync.WaitGroup
+
 	maxDocumentCount int
 	connCount        int
 	flushTimeout     time.Duration
@@ -152,10 +154,10 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 	for _, a := range addrs {
 		addr := withPort(a, defaultElasticSearchPort)
 		for i := 0; i < b.connCount; i++ {
-			b.wg.Add(1)
+			b.clientWg.Add(1)
 			go func(a string) {
 				client(&b, cl, a)
-				b.wg.Done()
+				b.clientWg.Done()
 			}(addr)
 		}
 	}
@@ -164,8 +166,22 @@ func New(addrs []string, opts ...Opt) *Bubbles {
 
 // Enqueue returns the queue to add Actions in a routine. It will block if all bulk
 // processors are busy.
-func (b *Bubbles) Enqueue() chan<- Action {
-	return b.q
+func (b *Bubbles) Enqueue(a Action) {
+	b.q <- a
+	b.docWg.Add(1)
+}
+
+// Wait until all queues are empty. Useful for a graceful shutdown.
+func (b *Bubbles) Wait(t time.Duration) {
+	d := make(chan struct{})
+	go func() {
+		b.docWg.Wait()
+		close(d)
+	}()
+	select {
+	case <-d:
+	case <-time.After(t):
+	}
 }
 
 // Stop shuts down all ElasticSearch clients. It'll return all Action entries
@@ -174,7 +190,7 @@ func (b *Bubbles) Stop() []Action {
 	close(b.quit)
 	// There is no explicit timeout, we rely on b.serverTimeout to shut down
 	// everything.
-	b.wg.Wait()
+	b.clientWg.Wait()
 
 	// Collect and return elements which are in flight.
 	close(b.retryQ)
@@ -273,6 +289,9 @@ func client(b *Bubbles, cl *http.Client, addr string) {
 			min(backoffTrouble.size(), tuneMax),
 			scratch,
 		)
+		for i := 0; i < sent; i++ {
+			b.docWg.Done()
+		}
 		if trouble {
 			backoffTrouble.inc()
 			b.c.Trouble()

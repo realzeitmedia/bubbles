@@ -19,7 +19,7 @@ func Example() {
 		}
 	}()
 
-	b.Enqueue() <- bubbles.Action{
+	b.Enqueue(bubbles.Action{
 		Type: bubbles.Index,
 		MetaData: bubbles.MetaData{
 			Index: "test",
@@ -27,5 +27,5 @@ func Example() {
 			ID:    "1",
 		},
 		Document: `{"field1": "value1"}`,
-	}
+	})
 }
