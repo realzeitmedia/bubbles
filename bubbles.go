@@ -171,6 +171,18 @@ func (b *Bubbles) Enqueue(a Action) {
 	b.docWg.Add(1)
 }
 
+// EnqueueSave returns the queue to add Actions in a routine. It will block if
+// all bulk processors are busy, or until the quit channel is closed.
+func (b *Bubbles) EnqueueSave(a Action, quit <-chan struct{}) bool {
+	select {
+	case b.q <- a:
+		b.docWg.Add(1)
+		return true
+	case <-quit:
+		return false
+	}
+}
+
 // Wait until all queues are empty. Useful for a graceful shutdown.
 func (b *Bubbles) Wait(t time.Duration) {
 	d := make(chan struct{})
